@@ -19,7 +19,7 @@ const JoinRoomPage = ({ params }: { params: Promise<{ roomId: string }> }) => {
     const joinRoom = async () => {
       const res = await fetch(`/api/rooms/${roomId}/join`, { method: "POST", credentials: "include" });
       if (res.ok) {
-        router.replace("/dashboard");
+        router.replace(`/room/${roomId}`);
       } else {
         const data = await res.json();
         setError(data.error || "Failed to join room");

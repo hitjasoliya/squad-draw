@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { cn } from "@/lib/utils";
@@ -37,6 +37,7 @@ export function LoginForm({
   const [isLoading, setIsLoading] = useState(false);
   const [showResendVerification, setShowResendVerification] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { showError, showSuccess } = useNotificationStore();
 
   const isSignUp = mode === "signup";
@@ -135,7 +136,8 @@ export function LoginForm({
             setIsLoading(false);
           },
           onSuccess: () => {
-            router.push("/dashboard");
+            const redirectTo = searchParams.get("redirect") || "/dashboard";
+            router.push(redirectTo);
             setIsLoading(false);
           },
         },
@@ -144,9 +146,11 @@ export function LoginForm({
   };
 
   const handleGoogleSignIn = async () => {
+    const redirectTo = searchParams.get("redirect") || "/dashboard";
     await authClient.signIn.social(
       {
         provider: "google",
+        callbackURL: redirectTo,
       },
       {
         onError: (ctx) => {
@@ -158,9 +162,11 @@ export function LoginForm({
   };
 
   const handleGithubSignIn = async () => {
+    const redirectTo = searchParams.get("redirect") || "/dashboard";
     await authClient.signIn.social(
       {
         provider: "github",
+        callbackURL: redirectTo,
       },
       {
         onError: (ctx) => {

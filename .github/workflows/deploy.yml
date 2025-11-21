@@ -29,9 +29,8 @@ jobs:
             cd squad-draw
 
             echo "📥 Pulling latest code..."
-            git pull origin production
-            git reset --hard origin/production
-
+            git pull origin main
+            
             echo "📦 Installing dependencies..."
             pnpm install 
 
