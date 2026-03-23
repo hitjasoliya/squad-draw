@@ -14,7 +14,7 @@ import {
   clearShapesHandler,
   cursorMoveHandler,
 } from "./handlers/content.handlers";
-import { prisma } from "@repo/db";
+import { query } from "@repo/db";
 
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 console.log(process.env.ORIGIN_URL);
@@ -37,39 +37,33 @@ const deleteOldMessages = async () => {
     threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
 
     try {
-        const result = await prisma.message.deleteMany({
-            where: {
-                createdAt: {
-                    lt: threeDaysAgo,
-                },
-            },
-        });
-        console.log(`Deleted ${result.count} old messages.`);
+        const result = await query(
+            "DELETE FROM messages WHERE created_at < $1",
+            [threeDaysAgo]
+        );
+        console.log(`Deleted old messages.`);
     } catch (error) {
         console.error("Error deleting old messages:", error);
     }
 };
 
 const deleteOldShapes = async () => {
-  const threeDaysAgo = new Date();
-  threeDaysAgo.setDate(threeDaysAgo.getDate() - 30);
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
   
   try {
-    const result = await prisma.shape.deleteMany({
-      where: {
-        createdAt: {
-          lt: threeDaysAgo,
-        },
-      },
-    });
-    console.log(`Deleted ${result.count} old shapes.`);
+    const result = await query(
+        "DELETE FROM shapes WHERE created_at < $1",
+        [thirtyDaysAgo]
+    );
+    console.log(`Deleted old shapes.`);
   } catch (error) {
     console.error("Error deleting old shapes:", error);
   }
 };
 
 
-// generl error handling
+// general error handling
 const handleSocketEvent = async (
   socket: Socket,
   eventName: string,

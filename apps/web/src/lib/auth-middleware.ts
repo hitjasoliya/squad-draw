@@ -1,5 +1,5 @@
-import { auth } from "@/lib/auth";
-import { NextRequest, NextResponse } from "next/server";
+import { getSessionFromToken, SESSION_COOKIE_NAME } from "@/lib/auth";
+import { NextRequest } from "next/server";
 
 export interface AuthenticatedUser {
   id: string;
@@ -9,21 +9,25 @@ export interface AuthenticatedUser {
 }
 
 export async function getAuthenticatedUser(
-  request: NextRequest,
+  request: NextRequest
 ): Promise<AuthenticatedUser | null> {
-  const session = await auth.api.getSession({
-    headers: request.headers,
-  });
+  const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
 
-  if (!session?.user?.id) {
+  if (!token) {
+    return null;
+  }
+
+  const user = await getSessionFromToken(token);
+
+  if (!user) {
     return null;
   }
 
   return {
-    id: session.user.id,
-    name: session.user.name,
-    email: session.user.email,
-    image: session.user.image || undefined,
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    image: user.image || undefined,
   };
 }
 
@@ -40,7 +44,7 @@ export function withAuth<T extends any[] = any[]>(handler: AuthHandler<T>) {
     if (!user) {
       return Response.json(
         { error: "Authentication required" },
-        { status: 401 },
+        { status: 401 }
       );
     }
 
@@ -55,7 +59,7 @@ type OptionalAuthHandler<T extends any[] = any[]> = (
 ) => Promise<Response>;
 
 export function withOptionalAuth<T extends any[] = any[]>(
-  handler: OptionalAuthHandler<T>,
+  handler: OptionalAuthHandler<T>
 ) {
   return async (request: NextRequest, ...args: T): Promise<Response> => {
     const user = await getAuthenticatedUser(request);

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@repo/db";
+import { query, queryOne } from "@repo/db";
 import { withAuth } from "@/lib/auth-middleware";
 
 export const GET = withAuth(
@@ -11,12 +11,10 @@ export const GET = withAuth(
     try {
       const { roomId } = await params;
 
-      const membership = await prisma.roomMember.findFirst({
-        where: {
-          roomId: roomId,
-          userId: user.id,
-        },
-      });
+      const membership = await queryOne(
+        "SELECT id FROM room_members WHERE room_id = $1 AND user_id = $2",
+        [roomId, user.id]
+      );
 
       if (!membership) {
         return Response.json(
@@ -25,29 +23,37 @@ export const GET = withAuth(
         );
       }
 
-      const messages = await prisma.message.findMany({
-        where: { roomId: roomId },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
-          },
-        },
-        orderBy: { createdAt: "asc" },
-        take: 100,
-      });
+      const messages = await query<{
+        id: string;
+        message: string;
+        created_at: Date;
+        room_id: string;
+        user_id: string;
+        user_name: string;
+        user_email: string;
+      }>(
+        `SELECT m.id, m.message, m.created_at, m.room_id, m.user_id,
+                u.name as user_name, u.email as user_email
+         FROM messages m
+         JOIN users u ON m.user_id = u.id
+         WHERE m.room_id = $1
+         ORDER BY m.created_at ASC
+         LIMIT 100`,
+        [roomId]
+      );
 
       return Response.json({
         messages: messages.map((msg) => ({
           id: msg.id,
           message: msg.message,
-          createdAt: msg.createdAt.toISOString(),
-          user: msg.user,
-          roomId: msg.roomId,
-          userId: msg.userId,
+          createdAt: new Date(msg.created_at).toISOString(),
+          user: {
+            id: msg.user_id,
+            name: msg.user_name,
+            email: msg.user_email,
+          },
+          roomId: msg.room_id,
+          userId: msg.user_id,
         })),
       });
     } catch (error) {

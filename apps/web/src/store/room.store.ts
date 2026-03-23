@@ -129,12 +129,18 @@ export const useRoomStore = create<RoomStore>()(
         }
       },
 
-      sendCursorPosition: (x: number, y: number) => {
-        const { socket, socketRoomId } = get();
-        if (socket && socketRoomId) {
-          socket.emit("cursor-move", { roomId: socketRoomId, x, y });
-        }
-      },
+      sendCursorPosition: (() => {
+        let lastSent = 0;
+        return (x: number, y: number) => {
+          const now = Date.now();
+          if (now - lastSent < 66) return; // ~15 updates/sec max
+          lastSent = now;
+          const { socket, socketRoomId } = get();
+          if (socket && socketRoomId) {
+            socket.emit("cursor-move", { roomId: socketRoomId, x, y });
+          }
+        };
+      })(),
 
       joinRoomInSocket: (roomId: string | null) => {
         set({ loading: true });
@@ -313,7 +319,19 @@ export const useRoomStore = create<RoomStore>()(
           });
 
           socket.on("connect_error", (error) => {
-            console.error("Socket connection error:", error);
+            console.error("Socket connection error:", error.message);
+            // If auth error, redirect to signin
+            if (error.message?.includes("Authentication error")) {
+              set({
+                isConnected: false,
+                error: "Session expired. Please sign in again.",
+              });
+              socket.disconnect();
+              if (typeof window !== "undefined") {
+                window.location.href = "/signin";
+              }
+              return;
+            }
             set({
               isConnected: false,
               error: "Failed to connect to chat server",

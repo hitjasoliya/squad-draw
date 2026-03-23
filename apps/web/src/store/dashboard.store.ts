@@ -109,8 +109,24 @@ export const useDashboardStore = create<DashboardStore>()(
           });
 
           if (response.ok) {
-            await get().fetchJoinedRooms();
-            set({ actionLoading: null });
+            const data = await response.json();
+            const newRoom = {
+              id: data.room.id,
+              name: data.room.name,
+              createdAt: data.room.created_at,
+              updatedAt: data.room.updated_at,
+              isShared: data.room.is_shared || false,
+              ownerId: data.room.owner_id,
+              userRole: "ADMIN",
+              owner: data.room.owner,
+              memberCount: 1,
+              shapeCount: 0,
+              messageCount: 0,
+            };
+            set((state) => ({
+              joinedRooms: [newRoom as Room, ...state.joinedRooms],
+              actionLoading: null,
+            }));
           } else {
             const error = await response.json();
             throw new Error(error.error || "Failed to create room");
@@ -133,6 +149,7 @@ export const useDashboardStore = create<DashboardStore>()(
           });
 
           if (response.ok) {
+            // Fetch full room list since we need full room data
             await get().fetchJoinedRooms();
             set({ actionLoading: null });
           } else {
@@ -155,12 +172,11 @@ export const useDashboardStore = create<DashboardStore>()(
           });
 
           if (response.ok) {
-            await get().fetchJoinedRooms();
-            const { overviewRoomId } = get();
-            if (overviewRoomId === roomId) {
-              set({ overviewRoomId: null });
-            }
-            set({ actionLoading: null });
+            set((state) => ({
+              joinedRooms: state.joinedRooms.filter((r) => r.id !== roomId),
+              overviewRoomId: state.overviewRoomId === roomId ? null : state.overviewRoomId,
+              actionLoading: null,
+            }));
           } else {
             const error = await response.json();
             throw new Error(error.error || "Failed to delete room");
@@ -181,12 +197,11 @@ export const useDashboardStore = create<DashboardStore>()(
           });
 
           if (response.ok) {
-            await get().fetchJoinedRooms();
-            const { overviewRoomId } = get();
-            if (overviewRoomId === roomId) {
-              set({ overviewRoomId: null });
-            }
-            set({ actionLoading: null });
+            set((state) => ({
+              joinedRooms: state.joinedRooms.filter((r) => r.id !== roomId),
+              overviewRoomId: state.overviewRoomId === roomId ? null : state.overviewRoomId,
+              actionLoading: null,
+            }));
           } else {
             const error = await response.json();
             throw new Error(error.error || "Failed to leave room");
@@ -207,8 +222,13 @@ export const useDashboardStore = create<DashboardStore>()(
           });
 
           if (response.ok) {
-            await get().fetchJoinedRooms();
-            set({ shareDialogOpen: roomId, actionLoading: null });
+            set((state) => ({
+              joinedRooms: state.joinedRooms.map((r) =>
+                r.id === roomId ? { ...r, isShared: true } : r
+              ),
+              shareDialogOpen: roomId,
+              actionLoading: null,
+            }));
           } else {
             const error = await response.json();
             throw new Error(error.error || "Failed to share room");
@@ -229,8 +249,12 @@ export const useDashboardStore = create<DashboardStore>()(
           });
 
           if (response.ok) {
-            await get().fetchJoinedRooms();
-            set({ actionLoading: null });
+            set((state) => ({
+              joinedRooms: state.joinedRooms.map((r) =>
+                r.id === roomId ? { ...r, isShared: false } : r
+              ),
+              actionLoading: null,
+            }));
           } else {
             const error = await response.json();
             throw new Error(error.error || "Failed to unshare room");

@@ -18,17 +18,29 @@ import { Button } from "@/components/ui/button";
 import { useTheme } from "next-themes";
 import { Toggle } from "@/components/Toggle";
 
+// Viewport transform type
+interface Viewport {
+  offsetX: number;
+  offsetY: number;
+  scale: number;
+}
 
-// This function now draws all committed shapes onto the static canvas.
+// This function draws all committed shapes with viewport transform applied.
 function drawShapesFromArray(
   shapes: any[],
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
+  viewport: Viewport,
 ) {
   if (!canvasRef.current) return;
   const ctx = canvasRef.current.getContext("2d");
   if (!ctx) return;
   const rc = rough.canvas(canvasRef.current);
   ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+
+  ctx.save();
+  ctx.translate(viewport.offsetX, viewport.offsetY);
+  ctx.scale(viewport.scale, viewport.scale);
+
   shapes.forEach((shape) => {
     const d = shape.dataFromRoughJs;
     switch (d.type) {
@@ -59,6 +71,8 @@ function drawShapesFromArray(
         break;
     }
   });
+
+  ctx.restore();
 }
 
 export default function RoomPage() {
@@ -82,6 +96,25 @@ export default function RoomPage() {
 
   const roughCanvasRef = useRef<RoughCanvas | null>(null);
   const previousConnectionStatus = useRef<boolean | null>(null);
+
+  // Infinite canvas viewport state
+  const viewportRef = useRef<Viewport>({ offsetX: 0, offsetY: 0, scale: 1 });
+  const isPanningRef = useRef(false);
+  const panStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [zoomLevel, setZoomLevel] = useState(100);
+
+  // Convert screen coordinates to world coordinates
+  const screenToWorld = (screenX: number, screenY: number): [number, number] => {
+    const v = viewportRef.current;
+    return [
+      (screenX - v.offsetX) / v.scale,
+      (screenY - v.offsetY) / v.scale,
+    ];
+  };
+
+  const redrawCanvas = () => {
+    drawShapesFromArray(shapes, staticCanvasRef, viewportRef.current);
+  };
   const [currentShape, setCurrentShape] = useState<ShapeType | 'HAND'>("HAND");
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentPath, setCurrentPath] = useState<[number, number][]>([]);
@@ -206,28 +239,30 @@ export default function RoomPage() {
 
     if (!container || !staticCanvas || !dynamicCanvas) return;
 
+    let resizeTimer: ReturnType<typeof setTimeout>;
     const handleResize = () => {
-      // Set a stable height for the container
       container.style.height = `${window.innerHeight}px`;
       container.style.width = `${window.innerWidth}px`;
-
-      // Update canvas dimensions to match the container
       staticCanvas.width = container.offsetWidth;
       staticCanvas.height = container.offsetHeight;
       dynamicCanvas.width = container.offsetWidth;
       dynamicCanvas.height = container.offsetHeight;
-      
-      // Redraw shapes on the static canvas after resizing
-      drawShapesFromArray(shapes, staticCanvasRef);
+
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        drawShapesFromArray(shapes, staticCanvasRef, viewportRef.current);
+      }, 150);
     };
 
-    handleResize(); // Set initial size
+    handleResize();
+    drawShapesFromArray(shapes, staticCanvasRef, viewportRef.current);
 
     window.addEventListener("resize", handleResize);
     return () => {
+      clearTimeout(resizeTimer);
       window.removeEventListener("resize", handleResize);
     };
-  }, [shapes]); // Rerun when shapes change to redraw correctly
+  }, [shapes]);
 
 
   useEffect(() => {
@@ -241,37 +276,48 @@ export default function RoomPage() {
 
     const rc = rough.canvas(dynamicCanvas);
 
-    // #### MOBILE/TOUCH SUPPORT: Shared drawing logic ####
-    const startDrawing = (x: number, y: number) => {
-      if (currentShape === 'HAND') {
-        return;
-      } else if (currentShape === "FREEDRAW") {
+    // Apply viewport transform to dynamic canvas context
+    const applyViewport = (ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.save();
+      ctx.translate(viewportRef.current.offsetX, viewportRef.current.offsetY);
+      ctx.scale(viewportRef.current.scale, viewportRef.current.scale);
+    };
+
+    // Clear dynamic canvas with viewport
+    const clearDynamic = () => {
+      dynamicCtx.clearRect(0, 0, dynamicCanvas.width, dynamicCanvas.height);
+    };
+
+    // #### Shared drawing logic (all coords in world space) ####
+    const startDrawing = (wx: number, wy: number) => {
+      if (currentShape === 'HAND') return;
+      if (currentShape === "FREEDRAW") {
         setIsDrawing(true);
-        setCurrentPath([[x, y]]);
+        setCurrentPath([[wx, wy]]);
       } else {
-        setStartPoint([x, y]);
+        setStartPoint([wx, wy]);
       }
     };
 
-    const drawing = (x: number, y: number) => {
-      if (currentShape === 'HAND') {
-        return;
-      }
+    const drawing = (wx: number, wy: number) => {
+      if (currentShape === 'HAND') return;
       if (currentShape === "FREEDRAW" && isDrawing) {
         const lastPoint = currentPath[currentPath.length - 1];
-        const minDistance = 3;
+        const minDistance = 3 / viewportRef.current.scale;
 
         if (
           !lastPoint ||
           Math.sqrt(
-            Math.pow(x - lastPoint[0], 2) + Math.pow(y - lastPoint[1], 2),
+            Math.pow(wx - lastPoint[0], 2) + Math.pow(wy - lastPoint[1], 2),
           ) > minDistance
         ) {
-          const newPath = [...currentPath, [x, y] as [number, number]];
+          const newPath = [...currentPath, [wx, wy] as [number, number]];
           setCurrentPath(newPath);
 
-          dynamicCtx.clearRect(0, 0, dynamicCanvas.width, dynamicCanvas.height);
+          clearDynamic();
           if (newPath.length > 1) {
+            applyViewport(dynamicCtx, dynamicCanvas);
             rc.linearPath(newPath, {
               ...drawingOptions,
               strokeWidth: 3,
@@ -279,46 +325,47 @@ export default function RoomPage() {
               disableMultiStroke: true,
               seed: 1,
             });
+            dynamicCtx.restore();
           }
         }
       } else if (startPoint) {
-        dynamicCtx.clearRect(0, 0, dynamicCanvas.width, dynamicCanvas.height);
+        clearDynamic();
+        applyViewport(dynamicCtx, dynamicCanvas);
 
-        const centerX = (startPoint[0] + x) / 2;
-        const centerY = (startPoint[1] + y) / 2;
-        const width = Math.abs(x - startPoint[0]);
-        const height = Math.abs(y - startPoint[1]);
+        const centerX = (startPoint[0] + wx) / 2;
+        const centerY = (startPoint[1] + wy) / 2;
+        const width = Math.abs(wx - startPoint[0]);
+        const height = Math.abs(wy - startPoint[1]);
 
         switch (currentShape) {
           case "ELLIPSE": rc.ellipse(centerX, centerY, width, height, { ...drawingOptions, seed: 1 }); break;
-          case "RECTANGLE": rc.rectangle(startPoint[0], startPoint[1], x - startPoint[0], y - startPoint[1], { ...drawingOptions, seed: 1 }); break;
-          case "LINE": rc.line(startPoint[0], startPoint[1], x, y, { ...drawingOptions, seed: 1 }); break;
+          case "RECTANGLE": rc.rectangle(startPoint[0], startPoint[1], wx - startPoint[0], wy - startPoint[1], { ...drawingOptions, seed: 1 }); break;
+          case "LINE": rc.line(startPoint[0], startPoint[1], wx, wy, { ...drawingOptions, seed: 1 }); break;
           case "DIAMOND": {
-            const points: [number, number][] = [[centerX, startPoint[1]], [x, centerY], [centerX, y], [startPoint[0], centerY]];
+            const points: [number, number][] = [[centerX, startPoint[1]], [wx, centerY], [centerX, wy], [startPoint[0], centerY]];
             rc.polygon(points, { ...drawingOptions, seed: 1 });
             break;
           }
           case "ARROW": {
-            rc.line(startPoint[0], startPoint[1], x, y, { ...drawingOptions, seed: 1 });
-            const angle = Math.atan2(y - startPoint[1], x - startPoint[0]);
+            rc.line(startPoint[0], startPoint[1], wx, wy, { ...drawingOptions, seed: 1 });
+            const angle = Math.atan2(wy - startPoint[1], wx - startPoint[0]);
             const arrowLength = 15;
             const arrowAngle = Math.PI / 6;
-            const arrowX1 = x - arrowLength * Math.cos(angle - arrowAngle);
-            const arrowY1 = y - arrowLength * Math.sin(angle - arrowAngle);
-            const arrowX2 = x - arrowLength * Math.cos(angle + arrowAngle);
-            const arrowY2 = y - arrowLength * Math.sin(angle + arrowAngle);
-            rc.line(x, y, arrowX1, arrowY1, { ...drawingOptions, seed: 1 });
-            rc.line(x, y, arrowX2, arrowY2, { ...drawingOptions, seed: 1 });
+            const arrowX1 = wx - arrowLength * Math.cos(angle - arrowAngle);
+            const arrowY1 = wy - arrowLength * Math.sin(angle - arrowAngle);
+            const arrowX2 = wx - arrowLength * Math.cos(angle + arrowAngle);
+            const arrowY2 = wy - arrowLength * Math.sin(angle + arrowAngle);
+            rc.line(wx, wy, arrowX1, arrowY1, { ...drawingOptions, seed: 1 });
+            rc.line(wx, wy, arrowX2, arrowY2, { ...drawingOptions, seed: 1 });
             break;
           }
         }
+        dynamicCtx.restore();
       }
     };
 
-    const endDrawing = (x: number, y: number) => {
-      if (currentShape === 'HAND') {
-        return;
-      }
+    const endDrawing = (wx: number, wy: number) => {
+      if (currentShape === 'HAND') return;
       if (currentShape === "FREEDRAW" && isDrawing) {
         if (currentPath.length > 1 && session?.user?.id) {
           const newShape = {
@@ -335,32 +382,30 @@ export default function RoomPage() {
         }
         setIsDrawing(false);
         setCurrentPath([]);
-        dynamicCtx.clearRect(0, 0, dynamicCanvas.width, dynamicCanvas.height);
+        clearDynamic();
       } else if (startPoint) {
-        const centerX = (startPoint[0] + x) / 2;
-        const centerY = (startPoint[1] + y) / 2;
-        const width = Math.abs(x - startPoint[0]);
-        const height = Math.abs(y - startPoint[1]);
+        const centerX = (startPoint[0] + wx) / 2;
+        const centerY = (startPoint[1] + wy) / 2;
         if (session?.user?.id) {
           let newShape: any;
           switch (currentShape) {
-            case "ELLIPSE": newShape = { type: "ELLIPSE" as ShapeType, dataFromRoughJs: { type: "ELLIPSE", cx: centerX, cy: centerY, rx: width, ry: height, options: { ...drawingOptions, seed: 1 } }, roomId, creatorId: session.user.id }; break;
-            case "RECTANGLE": newShape = { type: "RECTANGLE" as ShapeType, dataFromRoughJs: { type: "RECTANGLE", x: startPoint[0], y: startPoint[1], width: x - startPoint[0], height: y - startPoint[1], options: { ...drawingOptions, seed: 1 } }, roomId, creatorId: session.user.id }; break;
-            case "LINE": newShape = { type: "LINE" as ShapeType, dataFromRoughJs: { type: "LINE", x1: startPoint[0], y1: startPoint[1], x2: x, y2: y, options: { ...drawingOptions, seed: 1 } }, roomId, creatorId: session.user.id }; break;
+            case "ELLIPSE": newShape = { type: "ELLIPSE" as ShapeType, dataFromRoughJs: { type: "ELLIPSE", cx: centerX, cy: centerY, rx: Math.abs(wx - startPoint[0]), ry: Math.abs(wy - startPoint[1]), options: { ...drawingOptions, seed: 1 } }, roomId, creatorId: session.user.id }; break;
+            case "RECTANGLE": newShape = { type: "RECTANGLE" as ShapeType, dataFromRoughJs: { type: "RECTANGLE", x: startPoint[0], y: startPoint[1], width: wx - startPoint[0], height: wy - startPoint[1], options: { ...drawingOptions, seed: 1 } }, roomId, creatorId: session.user.id }; break;
+            case "LINE": newShape = { type: "LINE" as ShapeType, dataFromRoughJs: { type: "LINE", x1: startPoint[0], y1: startPoint[1], x2: wx, y2: wy, options: { ...drawingOptions, seed: 1 } }, roomId, creatorId: session.user.id }; break;
             case "DIAMOND": {
-              const points = [[centerX, startPoint[1]], [x, centerY], [centerX, y], [startPoint[0], centerY]];
+              const points = [[centerX, startPoint[1]], [wx, centerY], [centerX, wy], [startPoint[0], centerY]];
               newShape = { type: "DIAMOND" as ShapeType, dataFromRoughJs: { type: "DIAMOND", points, options: { ...drawingOptions, seed: 1 } }, roomId, creatorId: session.user.id };
               break;
             }
             case "ARROW": {
-              const angle = Math.atan2(y - startPoint[1], x - startPoint[0]);
+              const angle = Math.atan2(wy - startPoint[1], wx - startPoint[0]);
               const arrowLength = 15;
               const arrowAngle = Math.PI / 6;
-              const arrowX1 = x - arrowLength * Math.cos(angle - arrowAngle);
-              const arrowY1 = y - arrowLength * Math.sin(angle - arrowAngle);
-              const arrowX2 = x - arrowLength * Math.cos(angle + arrowAngle);
-              const arrowY2 = y - arrowLength * Math.sin(angle + arrowAngle);
-              newShape = { type: "ARROW" as ShapeType, dataFromRoughJs: { type: "ARROW", x1: startPoint[0], y1: startPoint[1], x2: x, y2: y, arrowHead1: [arrowX1, arrowY1], arrowHead2: [arrowX2, arrowY2], options: { ...drawingOptions, seed: 1 } }, roomId, creatorId: session.user.id };
+              const arrowX1 = wx - arrowLength * Math.cos(angle - arrowAngle);
+              const arrowY1 = wy - arrowLength * Math.sin(angle - arrowAngle);
+              const arrowX2 = wx - arrowLength * Math.cos(angle + arrowAngle);
+              const arrowY2 = wy - arrowLength * Math.sin(angle + arrowAngle);
+              newShape = { type: "ARROW" as ShapeType, dataFromRoughJs: { type: "ARROW", x1: startPoint[0], y1: startPoint[1], x2: wx, y2: wy, arrowHead1: [arrowX1, arrowY1], arrowHead2: [arrowX2, arrowY2], options: { ...drawingOptions, seed: 1 } }, roomId, creatorId: session.user.id };
               break;
             }
           }
@@ -369,44 +414,135 @@ export default function RoomPage() {
           }
         }
         setStartPoint(null);
-        dynamicCtx.clearRect(0, 0, dynamicCanvas.width, dynamicCanvas.height);
+        clearDynamic();
       }
     };
 
-    // Mouse Event Handlers
-    const handleMouseDown = (e: MouseEvent) => startDrawing(e.offsetX, e.offsetY);
-    const handleMouseMove = (e: MouseEvent) => {
-      drawing(e.offsetX, e.offsetY);
-      sendCursorPosition(e.offsetX, e.offsetY);
+    // Mouse Event Handlers — convert screen coords to world coords
+    const handleMouseDown = (e: MouseEvent) => {
+      // HAND tool: start panning
+      if (currentShape === 'HAND') {
+        isPanningRef.current = true;
+        panStartRef.current = { x: e.clientX, y: e.clientY };
+        return;
+      }
+      // Middle mouse button: also pan
+      if (e.button === 1) {
+        isPanningRef.current = true;
+        panStartRef.current = { x: e.clientX, y: e.clientY };
+        e.preventDefault();
+        return;
+      }
+      const [wx, wy] = screenToWorld(e.offsetX, e.offsetY);
+      startDrawing(wx, wy);
     };
-    const handleMouseUp = (e: MouseEvent) => endDrawing(e.offsetX, e.offsetY);
+
+    const handleMouseMove = (e: MouseEvent) => {
+      // Panning
+      if (isPanningRef.current) {
+        const dx = e.clientX - panStartRef.current.x;
+        const dy = e.clientY - panStartRef.current.y;
+        viewportRef.current.offsetX += dx;
+        viewportRef.current.offsetY += dy;
+        panStartRef.current = { x: e.clientX, y: e.clientY };
+        drawShapesFromArray(shapes, staticCanvasRef, viewportRef.current);
+        return;
+      }
+      const [wx, wy] = screenToWorld(e.offsetX, e.offsetY);
+      drawing(wx, wy);
+      sendCursorPosition(wx, wy);
+    };
+
+    const handleMouseUp = (e: MouseEvent) => {
+      if (isPanningRef.current) {
+        isPanningRef.current = false;
+        return;
+      }
+      const [wx, wy] = screenToWorld(e.offsetX, e.offsetY);
+      endDrawing(wx, wy);
+    };
+
+    // Wheel handler: Ctrl+scroll = zoom, plain scroll = pan
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const v = viewportRef.current;
+
+      if (e.ctrlKey || e.metaKey) {
+        // Zoom towards cursor
+        const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+        const newScale = Math.min(Math.max(v.scale * zoomFactor, 0.1), 10);
+        const rect = dynamicCanvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        // Adjust offset so zoom centers on cursor
+        v.offsetX = mouseX - (mouseX - v.offsetX) * (newScale / v.scale);
+        v.offsetY = mouseY - (mouseY - v.offsetY) * (newScale / v.scale);
+        v.scale = newScale;
+        setZoomLevel(Math.round(newScale * 100));
+      } else {
+        // Plain scroll = pan
+        v.offsetX -= e.deltaX;
+        v.offsetY -= e.deltaY;
+      }
+
+      drawShapesFromArray(shapes, staticCanvasRef, viewportRef.current);
+    };
 
     // #### MOBILE/TOUCH SUPPORT: Touch Event Handlers ####
     const handleTouchStart = (e: TouchEvent) => {
       e.preventDefault();
       const touch = e.touches[0];
       const rect = dynamicCanvas.getBoundingClientRect();
-      startDrawing(touch?.clientX || 0 - rect.left, touch?.clientY || 0 - rect.top);
+      const sx = (touch?.clientX || 0) - rect.left;
+      const sy = (touch?.clientY || 0) - rect.top;
+      if (currentShape === 'HAND') {
+        isPanningRef.current = true;
+        panStartRef.current = { x: touch?.clientX || 0, y: touch?.clientY || 0 };
+        return;
+      }
+      const [wx, wy] = screenToWorld(sx, sy);
+      startDrawing(wx, wy);
     };
 
     const handleTouchMove = (e: TouchEvent) => {
       e.preventDefault();
       const touch = e.touches[0];
       const rect = dynamicCanvas.getBoundingClientRect();
-      drawing(touch?.clientX || 0 - rect.left, touch?.clientY || 0 - rect.top);
+      if (isPanningRef.current) {
+        const dx = (touch?.clientX || 0) - panStartRef.current.x;
+        const dy = (touch?.clientY || 0) - panStartRef.current.y;
+        viewportRef.current.offsetX += dx;
+        viewportRef.current.offsetY += dy;
+        panStartRef.current = { x: touch?.clientX || 0, y: touch?.clientY || 0 };
+        drawShapesFromArray(shapes, staticCanvasRef, viewportRef.current);
+        return;
+      }
+      const sx = (touch?.clientX || 0) - rect.left;
+      const sy = (touch?.clientY || 0) - rect.top;
+      const [wx, wy] = screenToWorld(sx, sy);
+      drawing(wx, wy);
     };
 
     const handleTouchEnd = (e: TouchEvent) => {
       e.preventDefault();
+      if (isPanningRef.current) {
+        isPanningRef.current = false;
+        return;
+      }
       const touch = e.changedTouches[0];
       const rect = dynamicCanvas.getBoundingClientRect();
-      endDrawing(touch?.clientX || 0 - rect.left, touch?.clientY || 0 - rect.top);
+      const sx = (touch?.clientX || 0) - rect.left;
+      const sy = (touch?.clientY || 0) - rect.top;
+      const [wx, wy] = screenToWorld(sx, sy);
+      endDrawing(wx, wy);
     };
 
     // Add all event listeners
     dynamicCanvas.addEventListener("mousedown", handleMouseDown);
     dynamicCanvas.addEventListener("mousemove", handleMouseMove);
     dynamicCanvas.addEventListener("mouseup", handleMouseUp);
+    dynamicCanvas.addEventListener("wheel", handleWheel, { passive: false });
     dynamicCanvas.addEventListener("touchstart", handleTouchStart, { passive: false });
     dynamicCanvas.addEventListener("touchmove", handleTouchMove, { passive: false });
     dynamicCanvas.addEventListener("touchend", handleTouchEnd, { passive: false });
@@ -415,6 +551,7 @@ export default function RoomPage() {
       dynamicCanvas.removeEventListener("mousedown", handleMouseDown);
       dynamicCanvas.removeEventListener("mousemove", handleMouseMove);
       dynamicCanvas.removeEventListener("mouseup", handleMouseUp);
+      dynamicCanvas.removeEventListener("wheel", handleWheel);
       dynamicCanvas.removeEventListener("touchstart", handleTouchStart);
       dynamicCanvas.removeEventListener("touchmove", handleTouchMove);
       dynamicCanvas.removeEventListener("touchend", handleTouchEnd);
@@ -430,7 +567,7 @@ export default function RoomPage() {
   >(null);
 
   useEffect(() => {
-    drawShapesFromArray(shapes, staticCanvasRef);
+    drawShapesFromArray(shapes, staticCanvasRef, viewportRef.current);
 
     if (
       previousShapesLength !== null &&
@@ -533,7 +670,7 @@ export default function RoomPage() {
         isHandMode={currentShape === 'HAND'}
         onHandModeToggle={() => setCurrentShape('HAND')}
       />
-      <div className="fixed bottom-6 left-6 z-40">
+      <div className="fixed bottom-6 left-6 z-40 flex items-center gap-2">
         <Button
           onClick={() => setIsControlPanelOpen(!isControlPanelOpen)}
           size="icon"
@@ -542,6 +679,51 @@ export default function RoomPage() {
         >
           <Palette className="h-5 w-5" />
         </Button>
+        <div className="bg-background/80 backdrop-blur-sm rounded-lg border flex items-center shadow-lg">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-none rounded-l-lg"
+            onClick={() => {
+              const v = viewportRef.current;
+              const newScale = Math.min(v.scale * 1.2, 10);
+              const cx = window.innerWidth / 2;
+              const cy = window.innerHeight / 2;
+              v.offsetX = cx - (cx - v.offsetX) * (newScale / v.scale);
+              v.offsetY = cy - (cy - v.offsetY) * (newScale / v.scale);
+              v.scale = newScale;
+              setZoomLevel(Math.round(newScale * 100));
+              drawShapesFromArray(shapes, staticCanvasRef, viewportRef.current);
+            }}
+          >+</Button>
+          <button
+            className="text-xs font-mono px-1 min-w-[40px] text-center text-foreground hover:bg-accent transition-colors"
+            onClick={() => {
+              viewportRef.current = { offsetX: 0, offsetY: 0, scale: 1 };
+              setZoomLevel(100);
+              drawShapesFromArray(shapes, staticCanvasRef, viewportRef.current);
+            }}
+            title="Reset zoom"
+          >
+            {zoomLevel}%
+          </button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-none rounded-r-lg"
+            onClick={() => {
+              const v = viewportRef.current;
+              const newScale = Math.max(v.scale * 0.8, 0.1);
+              const cx = window.innerWidth / 2;
+              const cy = window.innerHeight / 2;
+              v.offsetX = cx - (cx - v.offsetX) * (newScale / v.scale);
+              v.offsetY = cy - (cy - v.offsetY) * (newScale / v.scale);
+              v.scale = newScale;
+              setZoomLevel(Math.round(newScale * 100));
+              drawShapesFromArray(shapes, staticCanvasRef, viewportRef.current);
+            }}
+          >−</Button>
+        </div>
       </div>
       <Toggle isOpen={isChatOpen} setIsOpen={setIsChatOpen} />    
 

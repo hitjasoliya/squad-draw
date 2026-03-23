@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionCookie } from "better-auth/cookies";
+
+const SESSION_COOKIE_NAME = "squad_session";
 
 const protectedRoutes = ["/dashboard"];
 
 export async function middleware(req: NextRequest) {
   const { nextUrl } = req;
-  const sessionCookie = getSessionCookie(req);
+  const sessionCookie = req.cookies.get(SESSION_COOKIE_NAME)?.value;
 
   const res = NextResponse.next();
 

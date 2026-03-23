@@ -1,4 +1,4 @@
-import { prisma } from "@repo/db";
+import { query, queryOne } from "@repo/db";
 import { Socket } from "socket.io";
 
 const colors = [
@@ -14,7 +14,6 @@ export const joinRoomHandler = async (
   socket: Socket,
   data: { roomId: string },
 ) => {
-  // Validate user authentication
   if (!socket.data.user) {
     socket.emit("custom-error", {
       code: 401,
@@ -24,7 +23,6 @@ export const joinRoomHandler = async (
     return;
   }
 
-  // Validate input data
   if (!data || typeof data !== "object") {
     socket.emit("custom-error", {
       code: 400,
@@ -34,7 +32,6 @@ export const joinRoomHandler = async (
     return;
   }
 
-  // Validate roomId
   if (!data.roomId || typeof data.roomId !== "string" || !data.roomId.trim()) {
     socket.emit("custom-error", {
       code: 400,
@@ -45,11 +42,10 @@ export const joinRoomHandler = async (
   }
 
   try {
-    const room = await prisma.room.findUnique({
-      where: {
-        id: data.roomId,
-      },
-    });
+    const room = await queryOne(
+      "SELECT id FROM rooms WHERE id = $1",
+      [data.roomId]
+    );
 
     if (!room) {
       socket.emit("custom-error", {
@@ -60,12 +56,10 @@ export const joinRoomHandler = async (
       return;
     }
 
-    const isMember = await prisma.roomMember.findFirst({
-      where: {
-        roomId: data.roomId,
-        userId: socket.data.user.id,
-      },
-    });
+    const isMember = await queryOne(
+      "SELECT id FROM room_members WHERE room_id = $1 AND user_id = $2",
+      [data.roomId, socket.data.user.id]
+    );
 
     if (!isMember) {
       console.log("You are not a member of this room");
@@ -81,19 +75,16 @@ export const joinRoomHandler = async (
     socket.data.currentRoom = data.roomId;
     socket.data.color = getRandomColor();
 
-    // Get all online users in this room
     const socketsInRoom = await socket.in(data.roomId).fetchSockets();
     const onlineUsers = socketsInRoom.map((s) => ({id: s.data.user?.id, name: s.data.user?.name}))
     .filter((user) => user.id)
     .concat({id: socket.data.user.id, name: socket.data.user.name})
     
-    // Remove duplicates
     const uniqueOnlineUsers = onlineUsers.filter((user, index, self) =>
         index === self.findIndex((u) => (
             u.id === user.id
         ))
     )
-
 
     socket.emit("room-joined", {
       code: 200,
@@ -102,7 +93,6 @@ export const joinRoomHandler = async (
       onlineMembers: uniqueOnlineUsers,
     });
 
-    // Notify other room members that this user joined
     socket.to(data.roomId).emit("user-joined-room", {
       code: 200,
       type: "USER_JOINED_ROOM",
@@ -112,7 +102,6 @@ export const joinRoomHandler = async (
       color: socket.data.color,
     });
 
-    // Send updated online members list to all room members
     socket.to(data.roomId).emit("online-members-updated", {
       roomId: data.roomId,
       onlineMembers: uniqueOnlineUsers,
@@ -131,7 +120,6 @@ export const leaveRoomHandler = async (
   socket: Socket,
   data: { roomId: string },
 ) => {
-  // Validate user authentication
   if (!socket.data.user) {
     socket.emit("custom-error", {
       code: 401,
@@ -141,7 +129,6 @@ export const leaveRoomHandler = async (
     return;
   }
 
-  // Validate input data
   if (!data || typeof data !== "object") {
     socket.emit("custom-error", {
       code: 400,
@@ -151,7 +138,6 @@ export const leaveRoomHandler = async (
     return;
   }
 
-  // Validate roomId
   if (!data.roomId || typeof data.roomId !== "string" || !data.roomId.trim()) {
     socket.emit("custom-error", {
       code: 400,
@@ -162,9 +148,10 @@ export const leaveRoomHandler = async (
   }
 
   try {
-    const room = await prisma.room.findUnique({
-      where: { id: data.roomId },
-    });
+    const room = await queryOne(
+      "SELECT id FROM rooms WHERE id = $1",
+      [data.roomId]
+    );
 
     if (!room) {
       socket.emit("custom-error", {
@@ -184,23 +171,20 @@ export const leaveRoomHandler = async (
       return;
     }
 
-    // Get remaining online users in this room before leaving
     const socketsInRoom = await socket.in(data.roomId).fetchSockets();
     const remainingUsers = socketsInRoom
       .map((s) => ({id: s.data.user?.id, name: s.data.user?.name}))
-      .filter((user) => user.id && user.id !== socket.data.user.id); // Exclude the leaving user
+      .filter((user) => user.id && user.id !== socket.data.user.id);
 
     socket.leave(data.roomId);
     socket.data.currentRoom = null;
 
-    // Emit success event to the sender
     socket.emit("room-left", {
       code: 200,
       type: "SUCCESS",
       roomId: data.roomId,
     });
 
-    // Notify other room members that this user left
     socket.to(data.roomId).emit("user-left-room", {
       code: 200,
       type: "USER_LEFT_ROOM",
@@ -209,7 +193,6 @@ export const leaveRoomHandler = async (
       userName: socket.data.user.name,
     });
 
-    // Send updated online members list to remaining room members
     socket.to(data.roomId).emit("online-members-updated", {
       roomId: data.roomId,
       onlineMembers: remainingUsers,
@@ -228,7 +211,6 @@ export const getOnlineMembersHandler = async (
   socket: Socket,
   data: { roomId: string },
 ) => {
-  // Validate user authentication
   if (!socket.data.user) {
     socket.emit("custom-error", {
       code: 401,
@@ -238,7 +220,6 @@ export const getOnlineMembersHandler = async (
     return;
   }
 
-  // Validate input data
   if (!data || typeof data !== "object") {
     socket.emit("custom-error", {
       code: 400,
@@ -248,7 +229,6 @@ export const getOnlineMembersHandler = async (
     return;
   }
 
-  // Validate roomId
   if (!data.roomId || typeof data.roomId !== "string" || !data.roomId.trim()) {
     socket.emit("custom-error", {
       code: 400,
@@ -259,13 +239,10 @@ export const getOnlineMembersHandler = async (
   }
 
   try {
-    // Check if user is a member of this room
-    const isMember = await prisma.roomMember.findFirst({
-      where: {
-        roomId: data.roomId,
-        userId: socket.data.user.id,
-      },
-    });
+    const isMember = await queryOne(
+      "SELECT id FROM room_members WHERE room_id = $1 AND user_id = $2",
+      [data.roomId, socket.data.user.id]
+    );
 
     if (!isMember) {
       socket.emit("custom-error", {
@@ -276,18 +253,15 @@ export const getOnlineMembersHandler = async (
       return;
     }
 
-    // Get all online users in this room
     const socketsInRoom = await socket.in(data.roomId).fetchSockets();
     const onlineUsers = socketsInRoom
       .map((s) => ({id: s.data.user?.id, name: s.data.user?.name}))
       .filter((user) => user.id);
 
-    // Include current user if they're in the room
     if (socket.rooms.has(data.roomId)) {
       onlineUsers.push({id: socket.data.user.id, name: socket.data.user.name});
     }
 
-    // Remove duplicates
     const uniqueOnlineUsers = onlineUsers.filter((user, index, self) =>
         index === self.findIndex((u) => (
             u.id === user.id

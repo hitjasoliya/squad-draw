@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@repo/db";
+import { query, queryOne } from "@repo/db";
 import { withAuth } from "@/lib/auth-middleware";
 
 const MAX_JOINED_ROOMS = 5;
@@ -13,28 +13,26 @@ export const POST = withAuth(
     try {
       const { roomId } = await params;
 
-      const room = await prisma.room.findUnique({
-        where: { id: roomId },
-        select: { id: true, name: true, isShared: true },
-      });
+      const room = await queryOne<{ id: string; name: string; is_shared: boolean }>(
+        "SELECT id, name, is_shared FROM rooms WHERE id = $1",
+        [roomId]
+      );
 
       if (!room) {
         return Response.json({ error: "Room not found" }, { status: 404 });
       }
 
-      if (!room.isShared) {
+      if (!room.is_shared) {
         return Response.json(
           { error: "Room is not shared and cannot be joined" },
           { status: 403 },
         );
       }
 
-      const existingMember = await prisma.roomMember.findFirst({
-        where: {
-          roomId: roomId,
-          userId: user.id,
-        },
-      });
+      const existingMember = await queryOne(
+        "SELECT id FROM room_members WHERE room_id = $1 AND user_id = $2",
+        [roomId, user.id]
+      );
 
       if (existingMember) {
         return Response.json(
@@ -43,9 +41,12 @@ export const POST = withAuth(
         );
       }
 
-      const userJoinedRoomsCount = await prisma.roomMember.count({
-        where: { userId: user.id },
-      });
+      const countResult = await queryOne<{ count: string }>(
+        "SELECT COUNT(*)::text as count FROM room_members WHERE user_id = $1",
+        [user.id]
+      );
+
+      const userJoinedRoomsCount = parseInt(countResult?.count || "0");
 
       if (userJoinedRoomsCount >= MAX_JOINED_ROOMS) {
         return Response.json(
@@ -58,13 +59,11 @@ export const POST = withAuth(
         );
       }
 
-      await prisma.roomMember.create({
-        data: {
-          roomId: roomId,
-          userId: user.id,
-          role: "MEMBER",
-        },
-      });
+      await query(
+        `INSERT INTO room_members (id, room_id, user_id, role, joined_at)
+         VALUES (gen_random_uuid()::text, $1, $2, 'MEMBER', NOW())`,
+        [roomId, user.id]
+      );
 
       return Response.json(
         {

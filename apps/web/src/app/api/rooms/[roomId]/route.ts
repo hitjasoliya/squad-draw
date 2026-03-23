@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@repo/db";
+import { query, queryOne } from "@repo/db";
 import { withAuth } from "@/lib/auth-middleware";
 
 export const GET = withAuth(
@@ -11,27 +11,29 @@ export const GET = withAuth(
     try {
       const { roomId } = await params;
 
-      const roomMembership = await prisma.roomMember.findFirst({
-        where: {
-          roomId: roomId,
-          userId: user.id,
-        },
-        include: {
-          room: {
-            include: {
-              owner: {
-                select: {
-                  id: true,
-                  name: true,
-                  email: true,
-                },
-              },
-            },
-          },
-        },
-      });
+      const membership = await queryOne<{
+        role: string;
+        room_id: string;
+        room_name: string;
+        room_created_at: Date;
+        room_updated_at: Date;
+        room_is_shared: boolean;
+        owner_id: string;
+        owner_name: string;
+        owner_email: string;
+      }>(
+        `SELECT rm.role,
+                r.id as room_id, r.name as room_name, r.created_at as room_created_at,
+                r.updated_at as room_updated_at, r.is_shared as room_is_shared,
+                u.id as owner_id, u.name as owner_name, u.email as owner_email
+         FROM room_members rm
+         JOIN rooms r ON rm.room_id = r.id
+         JOIN users u ON r.owner_id = u.id
+         WHERE rm.room_id = $1 AND rm.user_id = $2`,
+        [roomId, user.id]
+      );
 
-      if (!roomMembership) {
+      if (!membership) {
         return Response.json(
           { error: "You are not a member of this room" },
           { status: 403 },
@@ -39,16 +41,20 @@ export const GET = withAuth(
       }
 
       const room = {
-        id: roomMembership.room.id,
-        name: roomMembership.room.name,
-        createdAt: roomMembership.room.createdAt.toISOString(),
-        updatedAt: roomMembership.room.updatedAt.toISOString(),
-        isShared: roomMembership.room.isShared,
-        owner: roomMembership.room.owner,
-        userRole: roomMembership.role,
-        memberCount: 0, // Will be calculated separately if needed
-        shapeCount: 0, // Will be calculated separately if needed
-        messageCount: 0, // Will be calculated separately if needed
+        id: membership.room_id,
+        name: membership.room_name,
+        createdAt: new Date(membership.room_created_at).toISOString(),
+        updatedAt: new Date(membership.room_updated_at).toISOString(),
+        isShared: membership.room_is_shared,
+        owner: {
+          id: membership.owner_id,
+          name: membership.owner_name,
+          email: membership.owner_email,
+        },
+        userRole: membership.role,
+        memberCount: 0,
+        shapeCount: 0,
+        messageCount: 0,
       };
 
       return Response.json({ room });
@@ -68,25 +74,23 @@ export const DELETE = withAuth(
     try {
       const { roomId } = await params;
 
-      const room = await prisma.room.findUnique({
-        where: { id: roomId },
-        select: { ownerId: true },
-      });
+      const room = await queryOne<{ owner_id: string }>(
+        "SELECT owner_id FROM rooms WHERE id = $1",
+        [roomId]
+      );
 
       if (!room) {
         return Response.json({ error: "Room not found" }, { status: 404 });
       }
 
-      if (room.ownerId !== user.id) {
+      if (room.owner_id !== user.id) {
         return Response.json(
           { error: "Only room owner can delete the room" },
           { status: 403 },
         );
       }
 
-      await prisma.room.delete({
-        where: { id: roomId },
-      });
+      await query("DELETE FROM rooms WHERE id = $1", [roomId]);
 
       return Response.json({ message: "Room deleted successfully" });
     } catch (error) {

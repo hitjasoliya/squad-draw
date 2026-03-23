@@ -1,9 +1,9 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@repo/db";
+import { query, queryOne } from "@repo/db";
 import { SimpleShapeSchema } from "@/schemas/index";
 import { ZodError } from "zod";
 import { withAuth } from "@/lib/auth-middleware";
-import { validateMembership, validateAdminPermission } from "../../utils";
+import { validateMembership } from "../../utils";
 
 interface RouteParams {
   params: Promise<{ roomId: string }>;
@@ -22,17 +22,43 @@ export const GET = withAuth(
         );
       }
 
-      const shapes = await prisma.shape.findMany({
-        where: { roomId },
-        include: {
-          creator: {
-            select: { id: true, name: true, email: true },
-          },
-        },
-        orderBy: { createdAt: "asc" },
-      });
+      const shapes = await query<{
+        id: string;
+        type: string;
+        data_from_rough_js: any;
+        created_at: Date;
+        updated_at: Date;
+        room_id: string;
+        creator_id: string;
+        creator_name: string;
+        creator_email: string;
+      }>(
+        `SELECT s.id, s.type, s.data_from_rough_js, s.created_at, s.updated_at,
+                s.room_id, s.creator_id,
+                u.name as creator_name, u.email as creator_email
+         FROM shapes s
+         JOIN users u ON s.creator_id = u.id
+         WHERE s.room_id = $1
+         ORDER BY s.created_at ASC`,
+        [roomId]
+      );
 
-      return Response.json({ shapes });
+      return Response.json({
+        shapes: shapes.map((s) => ({
+          id: s.id,
+          type: s.type,
+          dataFromRoughJs: s.data_from_rough_js,
+          createdAt: s.created_at,
+          updatedAt: s.updated_at,
+          roomId: s.room_id,
+          creatorId: s.creator_id,
+          creator: {
+            id: s.creator_id,
+            name: s.creator_name,
+            email: s.creator_email,
+          },
+        })),
+      });
     } catch (error) {
       console.error("Failed to fetch shapes:", error);
       return Response.json(
@@ -60,20 +86,33 @@ export const POST = withAuth(
 
       const validatedShape = SimpleShapeSchema.parse(body);
 
-      const shape = await prisma.shape.create({
-        data: {
-          ...validatedShape,
-          roomId,
-          creatorId: user.id,
-        },
-        include: {
+      const shape = await queryOne<{
+        id: string;
+        type: string;
+        data_from_rough_js: any;
+        created_at: Date;
+        updated_at: Date;
+        room_id: string;
+        creator_id: string;
+      }>(
+        `INSERT INTO shapes (id, type, data_from_rough_js, room_id, creator_id, created_at, updated_at)
+         VALUES (gen_random_uuid()::text, $1, $2, $3, $4, NOW(), NOW())
+         RETURNING id, type, data_from_rough_js, created_at, updated_at, room_id, creator_id`,
+        [validatedShape.type, JSON.stringify(validatedShape.dataFromRoughJs), roomId, user.id]
+      );
+
+      console.log("Shape created:", shape);
+      return Response.json({
+        shape: {
+          ...shape,
+          dataFromRoughJs: shape?.data_from_rough_js,
           creator: {
-            select: { id: true, name: true, email: true },
+            id: user.id,
+            name: user.name,
+            email: user.email,
           },
         },
-      });
-      console.log("Shape created:", shape);
-      return Response.json({ shape }, { status: 201 });
+      }, { status: 201 });
     } catch (error) {
       if (error instanceof ZodError) {
         return Response.json(
@@ -103,9 +142,7 @@ export const DELETE = withAuth(
         );
       }
 
-      await prisma.shape.deleteMany({
-        where: { roomId },
-      });
+      await query("DELETE FROM shapes WHERE room_id = $1", [roomId]);
 
       return Response.json({ message: "All shapes cleared" });
     } catch (error) {

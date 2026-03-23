@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@repo/db";
+import { query, queryOne } from "@repo/db";
 import { withAuth } from "@/lib/auth-middleware";
 import { validateAdminPermission } from "../../../utils";
 
@@ -15,10 +15,18 @@ export const DELETE = withAuth(
 
       await validateAdminPermission(user.id, roomId);
 
-      const targetMember = await prisma.roomMember.findUnique({
-        where: { userId_roomId: { userId, roomId } },
-        include: { room: true },
-      });
+      const targetMember = await queryOne<{
+        id: string;
+        user_id: string;
+        room_id: string;
+        room_owner_id: string;
+      }>(
+        `SELECT rm.id, rm.user_id, rm.room_id, r.owner_id as room_owner_id
+         FROM room_members rm
+         JOIN rooms r ON rm.room_id = r.id
+         WHERE rm.user_id = $1 AND rm.room_id = $2`,
+        [userId, roomId]
+      );
 
       if (!targetMember) {
         return Response.json(
@@ -27,15 +35,13 @@ export const DELETE = withAuth(
         );
       }
 
-      // Prevent kicking the room owner
-      if (targetMember.room.ownerId === userId) {
+      if (targetMember.room_owner_id === userId) {
         return Response.json(
           { error: "Cannot kick the room owner" },
           { status: 403 },
         );
       }
 
-      // Prevent users from kicking themselves
       if (userId === user.id) {
         return Response.json(
           { error: "Cannot kick yourself. Use leave room instead" },
@@ -43,9 +49,10 @@ export const DELETE = withAuth(
         );
       }
 
-      await prisma.roomMember.delete({
-        where: { userId_roomId: { userId, roomId } },
-      });
+      await query(
+        "DELETE FROM room_members WHERE user_id = $1 AND room_id = $2",
+        [userId, roomId]
+      );
 
       return Response.json({ message: "Member kicked successfully" });
     } catch (error: any) {

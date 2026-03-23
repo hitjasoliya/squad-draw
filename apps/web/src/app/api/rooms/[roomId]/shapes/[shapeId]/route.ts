@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@repo/db";
+import { query, queryOne } from "@repo/db";
 import { withAuth } from "@/lib/auth-middleware";
 import { validateMembership } from "../../../utils";
 
@@ -20,25 +20,23 @@ export const DELETE = withAuth(
         );
       }
 
-      const shape = await prisma.shape.findUnique({
-        where: { id: shapeId },
-      });
+      const shape = await queryOne<{ id: string; room_id: string }>(
+        "SELECT id, room_id FROM shapes WHERE id = $1",
+        [shapeId]
+      );
 
       if (!shape) {
         return Response.json({ error: "Shape not found" }, { status: 404 });
       }
 
-      if (shape.roomId !== roomId) {
+      if (shape.room_id !== roomId) {
         return Response.json(
           { error: "Shape does not belong to this room" },
           { status: 400 },
         );
       }
 
-      // Allow any member to delete any shape in the room
-      await prisma.shape.delete({
-        where: { id: shapeId },
-      });
+      await query("DELETE FROM shapes WHERE id = $1", [shapeId]);
 
       return Response.json({ message: "Shape deleted successfully" });
     } catch (error) {

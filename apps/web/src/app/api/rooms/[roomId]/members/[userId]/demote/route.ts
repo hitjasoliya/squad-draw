@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@repo/db";
+import { query, queryOne } from "@repo/db";
 import { withAuth } from "@/lib/auth-middleware";
 import { validateAdminPermission } from "../../../../utils";
 
@@ -14,10 +14,16 @@ export const PATCH = withAuth(
 
       await validateAdminPermission(user.id, roomId);
 
-      const targetMember = await prisma.roomMember.findUnique({
-        where: { userId_roomId: { userId, roomId } },
-        include: { room: true },
-      });
+      const targetMember = await queryOne<{
+        role: string;
+        room_owner_id: string;
+      }>(
+        `SELECT rm.role, r.owner_id as room_owner_id
+         FROM room_members rm
+         JOIN rooms r ON rm.room_id = r.id
+         WHERE rm.user_id = $1 AND rm.room_id = $2`,
+        [userId, roomId]
+      );
 
       if (!targetMember) {
         return Response.json(
@@ -26,8 +32,7 @@ export const PATCH = withAuth(
         );
       }
 
-      // Can't modify the owner's role
-      if (targetMember.room.ownerId === userId) {
+      if (targetMember.room_owner_id === userId) {
         return Response.json(
           { error: "Cannot modify room owner privileges" },
           { status: 403 },
@@ -41,10 +46,10 @@ export const PATCH = withAuth(
         );
       }
 
-      await prisma.roomMember.update({
-        where: { userId_roomId: { userId, roomId } },
-        data: { role: "MEMBER" },
-      });
+      await query(
+        "UPDATE room_members SET role = 'MEMBER' WHERE user_id = $1 AND room_id = $2",
+        [userId, roomId]
+      );
 
       return Response.json({
         message: "Member demoted to member successfully",
