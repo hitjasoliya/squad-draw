@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { LoginForm } from "@/components/auth/login-form";
 
 export default function SignInPage() {
@@ -7,7 +8,9 @@ export default function SignInPage() {
         <a href="/" className="flex items-center gap-2 self-center font-medium">
           <img src="/logo.svg" alt="Squad Draw" className="w-40 h-auto" />
         </a>
-        <LoginForm mode="signin" />
+        <Suspense fallback={<div className="h-64 flex items-center justify-center">Loading...</div>}>
+          <LoginForm mode="signin" />
+        </Suspense>
       </div>
     </div>
   );

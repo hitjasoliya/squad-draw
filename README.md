@@ -31,14 +31,16 @@ Squad Draw is a full-stack real-time collaborative drawing application built as 
 - **Member Management**: Kick, promote, and demote members
 - **Room Sharing**: Generate shareable links for room access
 
-### User Experience
+### User Experience & Security
 
-- **Authentication**: Secure user authentication with better-auth
-- **Responsive Design**: Works on desktop and mobile devices
-- **Dark/Light Theme**: Toggle between themes
-- **Real-time Chat**: Group chat functionality within rooms
-- **Notifications**: Toast notifications for user actions
-- **Clear Canvas**: Admins can clear all shapes with confirmation modal
+- **Premium PC Dashboard**: Highly-productive split-pane architecture featuring a sidebar, glassmorphic effects, and interactive data sheets.
+- **Robust Security**: Edge-compatible API validation directly in the middleware to strictly verify opaque session tokens.
+- **Authentication**: Secure JWT-based custom authentication system.
+- **Responsive Design**: Gracefully adapts from a desktop workspace down to a mobile-friendly stacked layout.
+- **Dark/Light Theme**: Seamless toggle between themes.
+- **Real-time Chat**: Group chat functionality embedded within rooms.
+- **Notifications**: Subtle toast notifications for user actions.
+- **Whiteboard Controls**: Admins can clear all shapes with a confirmation modal.
 
 ---
 
@@ -56,8 +58,8 @@ Squad Draw is a full-stack real-time collaborative drawing application built as 
 ### Backend
 
 - **API**: Next.js API routes with TypeScript
-- **Database**: PostgreSQL with Prisma ORM
-- **Authentication**: better-auth with session management
+- **Database**: PostgreSQL (raw SQL queries with `pg` driver)
+- **Authentication**: Secure JWT-based custom authentication system with robust session management
 - **WebSocket**: Socket.IO for real-time communication
 - **Validation**: Zod schemas for type-safe validation
 
@@ -67,7 +69,7 @@ Squad Draw is a full-stack real-time collaborative drawing application built as 
 - **Package Manager**: pnpm with workspace support
 - **TypeScript**: Full TypeScript implementation
 - **Linting**: ESLint with custom configurations
-- **Database**: Prisma migrations and type generation
+- **Database**: Schema execution via raw `schema.sql`
 
 ---
 
@@ -97,10 +99,9 @@ Squad Draw is a full-stack real-time collaborative drawing application built as 
 
 ### packages/db
 
-- **ORM**: Prisma with PostgreSQL
+- **Driver**: PostgreSQL with `pg` library
 - **Schema**: User, Room, RoomMember, shapes, and messages
-- **Migrations**: Complete database schema evolution
-- **Types**: Auto-generated TypeScript types
+- **Migrations**: Seeded directly from `schema.sql`
 
 ### packages/schemas
 
@@ -117,6 +118,37 @@ Squad Draw is a full-stack real-time collaborative drawing application built as 
 ---
 
 ## 🚀 Getting Started
+
+### 🐳 Docker Deployment (Recommended)
+
+The easiest way to boot the full monorepo stack securely is via Docker Compose! This will spin up isolated Next.js, Node WebSocket, and PostgreSQL containers mapped over an internal network.
+
+1. **Clone & Configure**
+   ```bash
+   git clone https://github.com/hit-7624/squad-draw.git
+   cd squad-draw
+   ```
+
+2. **Boot the Cluster**
+   ```bash
+   docker-compose up --build -d
+   ```
+   *(Note: The first build may take a few minutes as it executes multi-stage Turborepo pruning to reduce optimization image sizes.)*
+
+3. **Initialize the Database Schema**
+   Docker spins up a completely fresh PostgreSQL volume. You must inject the base tables into it:
+   ```bash
+   # If prompted for a password, it defaults to: password
+   docker exec -i squad-draw-db-1 psql -U user -d dbname < packages/db/schema.sql
+   ```
+
+4. **Access Applications**
+   - **Frontend (Next.js)**: http://localhost:3000
+   - **Database Connection**: `postgresql://user:password@localhost:5433/dbname`
+
+---
+
+### Local Manual Installation
 
 ### Prerequisites
 
@@ -187,8 +219,6 @@ pnpm format
 
 ```env
 DATABASE_URL="postgresql://..."
-BETTER_AUTH_SECRET="your-secret-key"
-BETTER_AUTH_URL="http://localhost:3000"
 NEXT_PUBLIC_WS_URL="http://localhost:3001"
 ```
 
