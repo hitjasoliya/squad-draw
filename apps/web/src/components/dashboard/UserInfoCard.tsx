@@ -1,14 +1,8 @@
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { User, Room } from "./dashboard.types";
 import { signOut } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
+import { LogOut } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface UserInfoCardProps {
   user: User;
@@ -27,72 +21,40 @@ export const UserInfoCard = ({ user, joinedRooms = [] }: UserInfoCardProps) => {
     }
   };
 
+  const createdRooms = joinedRooms.filter((room) => room.owner.id === user.id).length;
+  const totalJoined = joinedRooms.length;
+
   return (
-    <Card className="mb-8">
-      <CardHeader>
-        <div className="flex flex-col sm:flex-row items-center sm:justify-between gap-4">
-          <div className="flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left">
-            <div className="w-16 h-16 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-xl flex-shrink-0">
-              {user.image ? (
-                <img
-                  src={user.image}
-                  alt={user.name}
-                  className="w-full h-full rounded-full object-cover"
-                />
-              ) : (
-                user.name.charAt(0).toUpperCase()
-              )}
-            </div>
-
-            <div>
-              <CardTitle>Welcome, {user.name}</CardTitle>
-              <CardDescription>{user.email}</CardDescription>
-
-              <div className="flex items-center justify-center sm:justify-start gap-4 mt-2 text-sm text-muted-foreground">
-                <span>
-                  Member since{" "}
-                  {new Date(user.createdAt || Date.now()).toLocaleDateString()}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <Button onClick={handleSignOut} variant="destructive">
-              Sign Out
-            </Button>
-          </div>
+    <div className="flex flex-col gap-4 p-4 rounded-xl bg-card border shadow-sm">
+      <div className="flex items-center gap-3">
+        <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-lg font-medium flex-shrink-0 shadow-inner">
+          {user.image ? (
+            <img src={user.image} alt={user.name} className="w-full h-full rounded-full object-cover" />
+          ) : (
+            user.name.charAt(0).toUpperCase()
+          )}
         </div>
-      </CardHeader>
-
-      <CardContent className="pt-0">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-muted p-4 rounded-lg border text-center">
-            <div className="text-2xl font-bold text-primary">
-              {joinedRooms.length}/5
-            </div>
-            <div className="text-sm">Joined Rooms</div>
-            <div className="text-xs text-muted-foreground mt-1">
-              {joinedRooms.length >= 5
-                ? "Limit reached"
-                : `${5 - joinedRooms.length} remaining`}
-            </div>
-          </div>
-
-          <div className="bg-muted p-4 rounded-lg border text-center">
-            <div className="text-2xl font-bold text-primary">
-              {joinedRooms.filter((room) => room.owner.id === user.id).length}/3
-            </div>
-            <div className="text-sm">Created Rooms</div>
-            <div className="text-xs text-muted-foreground mt-1">
-              {joinedRooms.filter((room) => room.owner.id === user.id).length >=
-              3
-                ? "Limit reached"
-                : `${3 - joinedRooms.filter((room) => room.owner.id === user.id).length} remaining`}
-            </div>
-          </div>
+        <div className="overflow-hidden">
+          <h3 className="font-semibold text-foreground truncate">{user.name}</h3>
+          <p className="text-xs text-muted-foreground truncate">{user.email}</p>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+      
+      <div className="grid grid-cols-2 gap-2 text-center text-xs">
+        <div className="bg-muted rounded-md p-2">
+          <div className="font-bold text-base text-primary">{totalJoined}/5</div>
+          <div className="text-muted-foreground">Joined</div>
+        </div>
+        <div className="bg-muted rounded-md p-2">
+          <div className="font-bold text-base text-primary">{createdRooms}/3</div>
+          <div className="text-muted-foreground">Created</div>
+        </div>
+      </div>
+
+      <Button onClick={handleSignOut} variant="outline" className="w-full text-destructive hover:bg-destructive/10 hover:text-destructive flex items-center justify-center gap-2">
+        <LogOut className="w-4 h-4" />
+        Sign Out
+      </Button>
+    </div>
   );
 };

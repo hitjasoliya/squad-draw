@@ -222,42 +222,109 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="max-w-7xl mx-auto p-4 sm:p-6">
-        <div className="absolute top-4 right-4 z-10">
-          <ThemeToggle />
-        </div>
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4 mb-8">
-          <img src="/logo.svg" alt="Squad Draw" className="w-48 sm:w-60 h-auto" />
-          <h1 className="text-4xl sm:text-5xl font-sans text-foreground text-center">Dashboard</h1>
-        </div>
+    <div className="flex h-screen overflow-hidden bg-background relative text-foreground">
+      {/* Decorative Background Gradient */}
+      <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-secondary/10 -z-10" />
 
-        {session?.user && (
-          <UserInfoCard user={session.user} joinedRooms={joinedRooms} />
-        )}
+      {/* Left Sidebar */}
+      <aside className="w-[320px] border-r bg-card/40 backdrop-blur-xl flex flex-col justify-between shrink-0 h-full overflow-y-auto hidden md:flex">
+        <div className="p-5 space-y-8">
+           <div className="flex items-center gap-2 mb-4 px-2 hover:opacity-80 transition-opacity cursor-pointer text-2xl font-bold tracking-tight">
+             squad draw<span className="text-primary">.</span>
+           </div>
+           
+           {session?.user && (
+             <UserInfoCard user={session.user} joinedRooms={joinedRooms} />
+           )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-          <CreateRoomForm
-            newRoomName={newRoomName}
-            setNewRoomName={setNewRoomName}
-            onCreateRoom={handleCreateRoom}
-            actionLoading={actionLoading}
-            createdRoomsCount={createdRoomsCount}
-          />
-          <JoinRoomForm
-            joinRoomId={joinRoomId}
-            setJoinRoomId={setJoinRoomId}
-            onJoinRoom={handleJoinRoom}
-            actionLoading={actionLoading}
-            joinedRoomsCount={joinedRoomsCount}
-          />
+           <div className="space-y-6">
+             <CreateRoomForm
+                newRoomName={newRoomName}
+                setNewRoomName={setNewRoomName}
+                onCreateRoom={handleCreateRoom}
+                actionLoading={actionLoading}
+                createdRoomsCount={createdRoomsCount}
+              />
+              <JoinRoomForm
+                joinRoomId={joinRoomId}
+                setJoinRoomId={setJoinRoomId}
+                onJoinRoom={handleJoinRoom}
+                actionLoading={actionLoading}
+                joinedRoomsCount={joinedRoomsCount}
+              />
+           </div>
         </div>
+        
+        <div className="p-5 border-t border-border/50 bg-card/50">
+           <div className="flex items-center justify-between px-2">
+             <span className="text-sm font-medium text-foreground">Theme</span>
+             <ThemeToggle />
+           </div>
+        </div>
+      </aside>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="space-y-6">
+      {/* Mobile Sidebar Fallback (for small screens) - Very simple stack */}
+      <div className="md:hidden flex flex-col w-full h-full overflow-y-auto">
+        <div className="p-4 flex items-center justify-between border-b bg-card/80 backdrop-blur">
+           <div className="text-xl font-bold tracking-tight">
+             squad draw<span className="text-primary">.</span>
+           </div>
+           <ThemeToggle />
+        </div>
+        <div className="p-4 space-y-6">
+           {session?.user && (
+             <UserInfoCard user={session.user} joinedRooms={joinedRooms} />
+           )}
+           <CreateRoomForm
+              newRoomName={newRoomName}
+              setNewRoomName={setNewRoomName}
+              onCreateRoom={handleCreateRoom}
+              actionLoading={actionLoading}
+              createdRoomsCount={createdRoomsCount}
+            />
+            <JoinRoomForm
+              joinRoomId={joinRoomId}
+              setJoinRoomId={setJoinRoomId}
+              onJoinRoom={handleJoinRoom}
+              actionLoading={actionLoading}
+              joinedRoomsCount={joinedRoomsCount}
+            />
+        </div>
+        <div className="p-4">
+           <RoomsList
+              rooms={joinedRooms}
+              user={session?.user || null}
+              overviewRoomId={overviewRoomId}
+              expandedRoom={expandedRoom}
+              actionLoading={actionLoading}
+              shareDialogOpen={shareDialogOpen}
+              onlineMembers={[]}
+              onJoinRoomInSocket={(roomId) => openOverview(roomId)}
+              onToggleExpansion={toggleRoomExpansion}
+              onShareRoom={handleShareRoom}
+              onUnshareRoom={handleUnshareRoom}
+              onDeleteRoom={handleDeleteRoom}
+              onLeaveRoom={handleLeaveRoom}
+              onCopyShareLink={handleCopyShareLink}
+              onCopyRoomId={handleCopyRoomId}
+              canManageRoom={(room) => canManageRoom(room, session?.user)}
+              isOwner={(room) => isOwner(room, session?.user)}
+            />
+        </div>
+      </div>
+
+      {/* Main Content (Desktop) */}
+      <main className="hidden md:flex flex-1 flex-col h-screen overflow-hidden relative">
+        <header className="h-16 border-b border-border/50 flex items-center px-8 bg-card/30 backdrop-blur-md shrink-0 shadow-sm z-10">
+          <h1 className="text-lg font-semibold tracking-tight">Dashboard Overview</h1>
+        </header>
+
+        <div className="flex-1 flex overflow-hidden">
+          {/* Rooms Grid */}
+          <div className="flex-1 overflow-y-auto p-6 lg:p-10">
             <RoomsList
               rooms={joinedRooms}
-              user={session?.user}
+              user={session?.user || null}
               overviewRoomId={overviewRoomId}
               expandedRoom={expandedRoom}
               actionLoading={actionLoading}
@@ -276,33 +343,32 @@ export default function Dashboard() {
             />
           </div>
 
-          <div className="space-y-6">
-            {overviewRoom ? (
-              <RoomOverview
-                overviewRoom={overviewRoom}
-                members={members}
-                currentUser={session?.user}
-                onCloseOverview={handleCloseOverview}
-                actionLoading={actionLoading}
-                canManageMembers={canManageMembers(overviewRoom, session?.user)}
-                onPromoteToAdmin={handlePromoteToAdmin}
-                onDemoteFromAdmin={handleDemoteFromAdmin}
-                onKickMember={handleKickMember}
-              />
-            ) : (
-              <RoomOverviewEmpty
-                hasRooms={joinedRooms.length > 0}
-                onCreateRoom={() => {
-                  const createInput = document.querySelector(
-                    'input[placeholder="Enter room name"]',
-                  ) as HTMLInputElement;
-                  createInput?.focus();
-                }}
-              />
-            )}
+          {/* Right Split Pane (Overview) */}
+          <div className="w-[360px] lg:w-[400px] xl:w-[450px] shrink-0 transform transition-all duration-300 ease-in-out border-l shadow-2xl relative z-20">
+             {overviewRoom ? (
+                <RoomOverview
+                  overviewRoom={overviewRoom}
+                  members={members}
+                  currentUser={session?.user || null}
+                  onCloseOverview={handleCloseOverview}
+                  actionLoading={actionLoading}
+                  canManageMembers={canManageMembers(overviewRoom, session?.user)}
+                  onPromoteToAdmin={handlePromoteToAdmin}
+                  onDemoteFromAdmin={handleDemoteFromAdmin}
+                  onKickMember={handleKickMember}
+                />
+             ) : (
+                <RoomOverviewEmpty 
+                   hasRooms={joinedRooms.length > 0}
+                   onCreateRoom={() => {
+                      const createInput = document.querySelector('input[placeholder="Room name..."]') as HTMLInputElement;
+                      createInput?.focus();
+                   }}
+                />
+             )}
           </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

@@ -1,12 +1,6 @@
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Plus } from "lucide-react";
 
 interface CreateRoomFormProps {
   newRoomName: string;
@@ -16,7 +10,7 @@ interface CreateRoomFormProps {
   createdRoomsCount: number;
 }
 
-const MAX_CREATED_ROOMS = Number(process.env.NEXT_PUBLIC_MAX_CREATED_ROOMS);
+const MAX_CREATED_ROOMS = Number(process.env.NEXT_PUBLIC_MAX_CREATED_ROOMS || 3);
 
 export const CreateRoomForm = ({
   newRoomName,
@@ -27,46 +21,32 @@ export const CreateRoomForm = ({
 }: CreateRoomFormProps) => {
   const isAtLimit = createdRoomsCount >= MAX_CREATED_ROOMS;
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Create New Room</CardTitle>
-        <CardDescription className="font-serif">
-          Start a new collaborative drawing session
-          <br />
-          <span
-            className={`text-sm font-serif ${isAtLimit ? "text-red-500" : "text-muted-foreground"}`}
-          >
-            {createdRoomsCount}/{MAX_CREATED_ROOMS} rooms created
-            {isAtLimit && " - Delete a room to create a new one"}
-          </span>
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={onCreateRoom} className="flex gap-3">
-          <div className="flex-1">
-            <Input
-              type="text"
-              value={newRoomName}
-              onChange={(e) => setNewRoomName(e.target.value)}
-              placeholder="Enter room name"
-              disabled={actionLoading === "create"}
-            />
-          </div>
-          <Button
-            type="submit"
-            disabled={
-              actionLoading === "create" || !newRoomName.trim() || isAtLimit
-            }
-            variant={isAtLimit ? "secondary" : "default"}
-          >
-            {actionLoading === "create"
-              ? "Creating..."
-              : isAtLimit
-                ? "Limit Reached"
-                : "Create"}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+    <div className="p-4 rounded-xl bg-card border shadow-sm">
+      <div className="mb-3">
+        <h4 className="font-semibold text-sm">Create Room</h4>
+        <p className="text-xs text-muted-foreground">
+          {isAtLimit ? <span className="text-red-500">Limit reached ({MAX_CREATED_ROOMS})</span> : `${createdRoomsCount}/${MAX_CREATED_ROOMS} rooms created`}
+        </p>
+      </div>
+      <form onSubmit={onCreateRoom} className="flex flex-col gap-2">
+        <Input
+          type="text"
+          value={newRoomName}
+          onChange={(e) => setNewRoomName(e.target.value)}
+          placeholder="Room name..."
+          disabled={actionLoading === "create"}
+          className="text-sm h-9"
+        />
+        <Button
+          type="submit"
+          disabled={actionLoading === "create" || !newRoomName.trim() || isAtLimit}
+          variant={isAtLimit ? "secondary" : "default"}
+          className="w-full h-9 flex items-center gap-2"
+        >
+          <Plus className="w-4 h-4" />
+          {actionLoading === "create" ? "Creating..." : "Create"}
+        </Button>
+      </form>
+    </div>
   );
 };
