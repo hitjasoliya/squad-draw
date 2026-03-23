@@ -119,37 +119,6 @@ Squad Draw is a full-stack real-time collaborative drawing application built as 
 
 ## 🚀 Getting Started
 
-### 🐳 Docker Deployment (Recommended)
-
-The easiest way to boot the full monorepo stack securely is via Docker Compose! This will spin up isolated Next.js, Node WebSocket, and PostgreSQL containers mapped over an internal network.
-
-1. **Clone & Configure**
-   ```bash
-   git clone https://github.com/hit-7624/squad-draw.git
-   cd squad-draw
-   ```
-
-2. **Boot the Cluster**
-   ```bash
-   docker-compose up --build -d
-   ```
-   *(Note: The first build may take a few minutes as it executes multi-stage Turborepo pruning to reduce optimization image sizes.)*
-
-3. **Initialize the Database Schema**
-   Docker spins up a completely fresh PostgreSQL volume. You must inject the base tables into it:
-   ```bash
-   # If prompted for a password, it defaults to: password
-   docker exec -i squad-draw-db-1 psql -U user -d dbname < packages/db/schema.sql
-   ```
-
-4. **Access Applications**
-   - **Frontend (Next.js)**: http://localhost:3000
-   - **Database Connection**: `postgresql://user:password@localhost:5433/dbname`
-
----
-
-### Local Manual Installation
-
 ### Prerequisites
 
 - Node.js 18 or higher
