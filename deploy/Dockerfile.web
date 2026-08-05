@@ -1,0 +1,23 @@
+FROM node:24-alpine AS builder
+WORKDIR /app
+RUN corepack enable && corepack prepare pnpm@latest --activate
+COPY package.json .npmrc ./
+RUN pnpm install --ignore-scripts --no-frozen-lockfile
+COPY . .
+# Baked into the client bundle at build time — passed via compose build.args
+# (e.g. http://<public-ip> so the browser uses the same origin through nginx)
+ARG NEXT_PUBLIC_WEBSOCKET_URL=http://localhost:8080
+ENV NEXT_PUBLIC_WEBSOCKET_URL=$NEXT_PUBLIC_WEBSOCKET_URL
+RUN pnpm build
+
+FROM node:24-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3000
+
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+
+EXPOSE 3000
+CMD ["node", "server.js"]

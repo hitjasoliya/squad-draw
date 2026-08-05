@@ -1,236 +1,172 @@
-# Squad Draw - Real-time Collaborative Drawing Application
+# Squad Draw — Scalable Real-Time Collaborative Whiteboard
 
-## Project Overview
-
-Squad Draw is a full-stack real-time collaborative drawing application built as a monorepo. Users can create rooms, invite others, and draw together in real-time with various shapes and tools.
-
-### Architecture
-
-- **apps/web**: Next.js 15 full-stack application with integrated API routes
-
-- **apps/ws-server**: WebSocket server for real-time collaboration (Socket.IO)
-- **packages/**: Shared code (database, schemas, UI components, configuration)
+Squad Draw is a production-grade, full-stack real-time collaborative drawing application designed as a **3-service decoupled architecture** (`web`, `ws-server`, and `auth-service`). Users can create rooms, collaborate on whiteboards with real-time canvas sync and cursor tracking, manage room memberships, and participate in group chat.
 
 ---
 
-## 🚀 Features
+## 🏛 Architecture Overview
 
-### Drawing & Collaboration
+```
+                        Browser (same-origin httpOnly cookie: squad_session)
+                                           │
+                              ┌────────────▼─────────────┐
+                              │  web/ (Next.js 16)       │
+                              │  API routes + proxy      │
+                              └────┬───────────────┬─────┘
+                     /api/auth/*   │               │ WebSocket (JWT token in cookie)
+                           ┌───────▼─────┐    ┌────▼──────────┐
+                           │ auth-service│    │ ws-server     │  Socket.IO 4.8.3
+                           │ Express 5   │    │ Socket.IO     │  + @socket.io/redis-adapter
+                           │ owns users  │    └────┬──────────┘
+                           └───────┬─────┘         │
+                                   │         ┌─────▼─────┐
+                           ┌───────▼─────────▼───────────┐
+                           │  Postgres 17 (Shared DB)    │
+                           │  Redis 7 (Adapter + Limits  │
+                           │  + token_version cache)     │
+                           └─────────────────────────────┘
+```
 
-- **Real-time Drawing**: Multiple users can draw simultaneously
-- **Shape Tools**: Ellipse, Rectangle, Line, Diamond, Arrow, Free Draw
-- **Drawing Options**: Customizable stroke, fill, opacity, roughness, and line styles
-  - **Live Updates**: Real-time synchronization of all drawing actions
-- **Save Canvas as Image**: Download the current canvas as a PNG image with a single click
+### Standalone Microservices (Zero Shared Code)
 
-### Room Management
-
-- **Create Rooms**: Users can create private or shared rooms
-- **Join Rooms**: Join existing rooms via room ID or share link
-- **Room Permissions**: Owner, Admin, and Member role system
-- **Member Management**: Kick, promote, and demote members
-- **Room Sharing**: Generate shareable links for room access
-
-### User Experience & Security
-
-- **Premium PC Dashboard**: Highly-productive split-pane architecture featuring a sidebar, glassmorphic effects, and interactive data sheets.
-- **Robust Security**: Edge-compatible API validation directly in the middleware to strictly verify opaque session tokens.
-- **Authentication**: Secure JWT-based custom authentication system.
-- **Responsive Design**: Gracefully adapts from a desktop workspace down to a mobile-friendly stacked layout.
-- **Dark/Light Theme**: Seamless toggle between themes.
-- **Real-time Chat**: Group chat functionality embedded within rooms.
-- **Notifications**: Subtle toast notifications for user actions.
-- **Whiteboard Controls**: Admins can clear all shapes with a confirmation modal.
-
----
-
-## 🛠 Technical Stack
-
-### Frontend
-
-- **Framework**: Next.js 15 with React 19
-- **Styling**: Tailwind CSS with custom component system
-- **State Management**: Zustand for global state
-- **Canvas**: RoughJS for hand-drawn style graphics
-- **UI Components**: Radix UI primitives with custom styling
-- **Forms**: React Hook Form with Zod validation
-
-### Backend
-
-- **API**: Next.js API routes with TypeScript
-- **Database**: PostgreSQL (raw SQL queries with `pg` driver)
-- **Authentication**: Secure JWT-based custom authentication system with robust session management
-- **WebSocket**: Socket.IO for real-time communication
-- **Validation**: Zod schemas for type-safe validation
-
-### Development
-
-- **Monorepo**: Turborepo for efficient building and development
-- **Package Manager**: pnpm with workspace support
-- **TypeScript**: Full TypeScript implementation
-- **Linting**: ESLint with custom configurations
-- **Database**: Schema execution via raw `schema.sql`
+1. **`web/` (Next.js 16.3.0 + React 19 + Turbopack)**: Frontend UI, dashboard, whiteboard dual-canvas (RoughJS), client store (Zustand), stateless Next.js `proxy.ts` gate, and Redis token-bucket rate-limiting middleware for mutation routes. Reverse-proxies `/api/auth/*` traffic to `auth-service`.
+2. **`ws-server/` (Node.js 24 + Socket.IO 4.8.3)**: Real-time event engine with `@socket.io/redis-adapter` for multi-node horizontal scaling, Postgres advisory-locked cleanup crons (`pg_try_advisory_lock`), and stateless zero-DB JWT handshake verification.
+3. **`auth-service/` (Node.js 24 + Express 5)**: Dedicated authentication engine owning `users` table writes, password hashing (bcrypt), token version management, rate-limited auth routes, and DB schema migrations via `node-pg-migrate`.
 
 ---
 
-## 📁 Project Structure
+## 🚀 Key Features & Performance Optimizations
 
-### apps/web (Main Application)
-
-- **Status**: - Full-stack Next.js application
-- **Features**:
-  - Complete room management system
-  - Real-time collaborative drawing
-  - User authentication and authorization
-  - Responsive UI with theme support
-  - Member management and permissions
-  - Room sharing functionality
-
-### apps/ws-server (WebSocket Server)
-
-- **Status**:  - Real-time communication server
-- **Features**:
-  - Socket.IO server for real-time events
-  - Room-based communication
-  - Drawing synchronization
-  - User presence tracking
-  - Authentication middleware
-
-
-### packages/db
-
-- **Driver**: PostgreSQL with `pg` library
-- **Schema**: User, Room, RoomMember, shapes, and messages
-- **Migrations**: Seeded directly from `schema.sql`
-
-### packages/schemas
-
-- **Validation**: Zod schemas for all data validation
-- **Types**: TypeScript types inferred from schemas
-- **Schemas**: User, Room, Drawing, and API validation schemas
-
-### packages/config, typescript-config, eslint-config
-
-- **Shared Configuration**: Centralized config for all packages
-- **TypeScript**: Consistent type checking across monorepo
-- **ESLint**: Shared linting rules and standards
+- **Stateless JWT Auth (`users.token_version`)**: Opaque `sessions` table completely eliminated. Replaced with 30-day HS256 JWTs signed with `jose`. Single active device session enforcement is guaranteed by incrementing `users.token_version` on login/logout and checking against Redis `auth:tv:{userId}` cache.
+- **Zero-Latency Middleware Proxy**: `web/src/proxy.ts` verifies JWT signatures statelessly in CPU using `jose` (<0.1ms), eliminating 100% of internal loopback HTTP fetches.
+- **Stateless WS Handshake**: `ws-server` validates JWT signatures on connection with zero database queries.
+- **Dual-Canvas Rendering Engine**: Separates committed vector shapes (`staticCanvasRef`) from active drawing previews and remote cursor overlays (`dynamicCanvasRef`), preserving a silky 60 FPS ($< 16\text{ms}$) interaction loop.
+- **Horizontal WS Event Scalability**: `@socket.io/redis-adapter` synchronizes room presence, live cursor tracking, shape actions, and chat across distributed WebSocket instances via Redis Pub/Sub.
+- **Postgres Advisory Locks (`pg_try_advisory_lock`)**: Prevents cron race conditions for periodic background data maintenance (message and shape cleanup) across multiple WS server replicas.
+- **Redis-Backed Rate Limiting**: Distributed token-bucket limiters protect auth endpoints (signin 10/15m, signup 5/1h), mutation API routes (30/m), and WS connections (20/10m).
+- **JSONB Vector Data Storage**: Rough.js vector parameters are stored directly inside PostgreSQL `JSONB` columns (`shapes.data_from_rough_js`), avoiding sparse relational table overhead.
+- **Tuned Database Connection Pools**: Max connections configured per tier (web: 10, ws: 5, auth: 5) with a strict 5-second `statement_timeout`.
 
 ---
 
-## 🚀 Getting Started
+## 🔄 Architecture Evolution: V1 → V2 → V3
+
+| Feature / Layer | Monorepo Prototype (V1) | Monorepo Optimization (V2) | Current Production Architecture (V3) |
+| :--- | :--- | :--- | :--- |
+| **Service Layout** | Monorepo (`turbo` / `pnpm-workspace`) | Monorepo (`apps/web`, `apps/ws-server`) | **3 Standalone Services** (`web`, `ws-server`, `auth-service`) |
+| **Auth Strategy** | BetterAuth Framework | Database `sessions` table (opaque hex tokens) | **Stateless 30-day HS256 JWT + `token_version`** |
+| **Auth Engine** | Embedded in Next.js API | Embedded in Next.js API | **Standalone `auth-service` (Express 5)** |
+| **Frontend Stack** | Next.js 15 (webpack) | Next.js 15.3.5 | **Next.js 16.3.0 (Turbopack) + React 19** |
+| **WS Handshake** | DB query against `sessions` table | DB query against `sessions` table | **Stateless JWT Signature Verification (`jose`)** |
+| **WS Scaling** | Single-instance socket | Single-instance socket | **Socket.IO + `@socket.io/redis-adapter`** |
+| **Background Crons** | Unlocked `setInterval` | Unlocked `setInterval` | **Postgres Advisory Locks (`pg_try_advisory_lock`)** |
+| **Rate Limiting** | None | None | **Redis-backed Token Buckets** |
+| **Deployment** | GCP VM (Nginx + PM2) | GCP VM (Nginx + PM2) | **AWS EC2 (Docker Compose + GitHub Actions)** |
+
+---
+
+## 📁 Repository Layout
+
+```
+squad-draw/
+├── web/              # Next.js 16 frontend + Zustand stores + RoughJS canvas + API proxies
+├── ws-server/        # Socket.IO 4.8.3 real-time collaboration server + Redis adapter
+├── auth-service/     # Express 5 authentication service + node-pg-migrate migrations
+├── deploy/           # Dockerfiles (x3) + docker-compose.yml + ec2-setup.sh + .env.example
+├── docs/             # ADRs and baseline/post-migration smoke test logs
+│   └── adr/          # ADR 0001 (3-Service Architecture) & ADR 0002 (Stateless Auth)
+├── CONTEXT.md        # Domain glossary & Ubiquitous Language definitions
+└── PLAN.md           # Architectural refactoring plan & settled engineering decisions
+```
+
+---
+
+## 🔑 Environment Contract
+
+| Variable | Scope | Description |
+| :--- | :--- | :--- |
+| `JWT_SECRET` | All Services | Secret key used to sign and verify HS256 JWT tokens |
+| `DATABASE_URL` | All Services | PostgreSQL 17 connection string (`postgres://user:pass@host:5432/dbname`) |
+| `REDIS_URL` | All Services | Redis 7 connection string (`redis://host:6379`) |
+| `AUTH_SERVICE_URL` | `web/` | Internal URL for web to proxy auth calls (`http://auth-service:4000`) |
+| `NEXT_PUBLIC_WEBSOCKET_URL` | `web/` | Browser WebSocket URL for client connection (`http://localhost:8080`) |
+| `NEXT_PUBLIC_BASE_URL` | `web/` | Browser public URL (`http://localhost:3000`) |
+| `ORIGIN_URL` | `ws-server/` | Allowed CORS origin for WebSocket connections (`http://localhost:3000`) |
+
+---
+
+## 🛠 Local Development Setup
 
 ### Prerequisites
+- **Node.js**: `>=24 LTS`
+- **pnpm**: `9+`
+- **PostgreSQL**: `17`
+- **Redis**: `7`
 
-- Node.js 18 or higher
-- pnpm (recommended package manager)
-- PostgreSQL database
+### Running Locally
 
-### Installation
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/hit-7624/squad-draw.git
+   cd squad-draw
+   ```
 
-1. Clone the repository:
+2. **Configure environment variables**:
+   ```bash
+   cp deploy/.env.example .env
+   cp deploy/.env.example web/.env.local
+   cp deploy/.env.example ws-server/.env
+   cp deploy/.env.example auth-service/.env
+   ```
 
-```bash
-git clone https://github.com/hit-7624/squad-draw.git
-cd squad-draw
-```
+3. **Install dependencies**:
+   ```bash
+   pnpm install
+   ```
 
-2. Install dependencies:
+4. **Run DB Migrations**:
+   ```bash
+   cd auth-service
+   pnpm migrate:up
+   cd ..
+   ```
 
-```bash
-pnpm install
-```
+5. **Start all services**:
+   ```bash
+   # Option A: Run services concurrently in separate terminals
+   pnpm dev:auth  # Port 4000 (Express 5 Auth Service)
+   pnpm dev:ws    # Port 8080 (Socket.IO Real-time Engine)
+   pnpm dev:web   # Port 3000 (Next.js 16 Web Frontend)
+   ```
 
-3. Set up environment variables:
-
-```bash
-# Copy environment files and configure
-cp apps/web/.env.example apps/web/.env.local
-cp apps/ws-server/.env.example apps/ws-server/.env
-```
-
-4. Set up the database:
-
-```bash
-cd packages/db
-pnpm db:push
-```
-
-5. Start development servers:
-
-```bash
-pnpm dev
-```
-
-### Development Commands
-
-```bash
-# Start all development servers
-pnpm dev
-
-# Build all packages
-pnpm build
-
-# Run linting
-pnpm lint
-
-# Type checking
-pnpm check-types
-
-# Format code
-pnpm format
-```
+6. **Build all services**:
+   ```bash
+   pnpm build
+   ```
 
 ---
 
-## 🔧 Environment Configuration
+## 🐳 Docker & Single-EC2 Deployment
 
-### Web App (.env.local)
+The application is containerized into multi-stage `node:24-alpine` Docker builds and orchestrated with Docker Compose.
 
-```env
-DATABASE_URL="postgresql://..."
-NEXT_PUBLIC_WS_URL="http://localhost:3001"
+### Running with Docker Compose
+```bash
+cp deploy/.env.example .env
+docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
-### WebSocket Server (.env)
-
-```env
-DATABASE_URL="postgresql://..."
-PORT=3001
-ALLOWED_ORIGINS="http://localhost:3000"
+### AWS EC2 Provisioning (`ec2-setup.sh`)
+For single-command provisioning on an AWS EC2 instance (Ubuntu 24.04 LTS):
+```bash
+ssh -i ~/.ssh/your-key.pem ubuntu@<EC2_PUBLIC_IP>
+bash deploy/ec2-setup.sh
 ```
 
----
-
-## 🎨 Usage
-
-1. **Create Account**: Sign up for a new account or sign in
-2. **Create Room**: Create a new drawing room
-3. **Invite Others**: Share the room link or ID with collaborators
-4. **Start Drawing**: Use the shape tools to draw on the canvas
-5. **Save Canvas**: Click the save button to download your drawing as a PNG image
-6. **Collaborate**: See real-time updates from other users
-7. **Manage Room**: Use admin features to manage members and settings
-
----
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+### GitHub Actions Auto-Deploy
+Pushes to `main` trigger `.github/workflows/deploy.yml` which SSHs into the AWS EC2 host, pulls code, rebuilds containers, and performs healthcheck verification.
 
 ---
 
 ## 📄 License
-
-This project is open source and available under the [MIT License](LICENSE).
-
----
-
-## 🔗 Links
-
-- **Repository**: [GitHub](https://github.com/hit-7624/squad-draw)
-- **Issues**: [GitHub Issues](https://github.com/hit-7624/squad-draw/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/hit-7624/squad-draw/discussions)
+[MIT License](LICENSE)

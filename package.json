@@ -1,20 +1,22 @@
 {
-  "name": "sqaud-draw",
+  "name": "squad-draw",
   "private": true,
   "scripts": {
-    "build": "turbo run build",
-    "dev": "turbo run dev",
-    "lint": "turbo run lint",
-    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
-    "check-types": "turbo run check-types"
+    "build:auth": "pnpm -C auth-service build",
+    "build:web": "pnpm -C web build",
+    "build:ws": "pnpm -C ws-server build",
+    "build": "pnpm -C auth-service build && pnpm -C web build && pnpm -C ws-server build",
+    "dev:auth": "pnpm -C auth-service dev",
+    "dev:web": "pnpm -C web dev",
+    "dev:ws": "pnpm -C ws-server dev",
+    "format": "prettier --write \"**/*.{ts,tsx,md}\""
   },
   "devDependencies": {
     "prettier": "^3.6.0",
-    "turbo": "^2.5.4",
-    "typescript": "5.8.2"
+    "typescript": "^5.8.2"
   },
   "packageManager": "pnpm@9.0.0",
   "engines": {
-    "node": ">=18"
+    "node": ">=24"
   }
 }

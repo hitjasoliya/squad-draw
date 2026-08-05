@@ -42,3 +42,13 @@ yarn-error.log*
 .vscode
 .cursor
 .
+
+
+PLAN.md 
+CONTEXT.md
+
+docs/
+
+INTERVIEW.md
+# TypeScript build info
+*.tsbuildinfo

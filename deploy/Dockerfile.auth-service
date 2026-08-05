@@ -1,0 +1,19 @@
+FROM node:24-alpine AS builder
+WORKDIR /app
+RUN corepack enable && corepack prepare pnpm@latest --activate
+COPY package.json .npmrc ./
+RUN pnpm install --ignore-scripts --no-frozen-lockfile
+COPY . .
+RUN pnpm build
+
+FROM node:24-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY package.json .npmrc ./
+RUN corepack enable && corepack prepare pnpm@latest --activate && pnpm install --prod --ignore-scripts --no-frozen-lockfile
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/migrations ./migrations
+
+EXPOSE 4000
+CMD ["sh", "-c", "pnpm exec node-pg-migrate up && node dist/index.js"]

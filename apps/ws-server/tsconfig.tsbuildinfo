@@ -1,1 +1,0 @@
-{"root":["./src/index.ts","./src/handlers/connection.handlers.ts","./src/handlers/content.handlers.ts","./src/middlewares/auth.middleware.ts","./src/types/user.ts"],"version":"5.8.2"}

@@ -1,51 +1,26 @@
-name: Deploy to GCP VM
+# name: Deploy to EC2
 
-on:
-  push:
-    branches:
-      - main
+# on:
+#   push:
+#     branches:
+#       - main
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: SSH into GCP VM and deploy
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.GCP_VM_HOST }}
-          username: ${{ secrets.GCP_VM_USER }}
-          key: ${{ secrets.GCP_VM_SSH_KEY }}
-          port: 22
-          script: |
-            export NVM_DIR="$HOME/.nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
-
-            export PATH="$HOME/.npm-global/bin:$HOME/.local/share/pnpm:$HOME/.nvm/versions/node/$(nvm current)/bin:$PATH"
-
-            cd squad-draw
-
-            echo "📥 Pulling latest code..."
-            git pull origin main
-            
-            echo "📦 Installing dependencies..."
-            pnpm install 
-
-            echo "🧬 Generating Prisma client..."
-            pnpm turbo run db:generate
-
-            echo "🏗️ Building the project..."
-            pnpm build
-            
-            pm2 delete all || true
-            
-            cd apps/web
-            pm2 start "pnpm start" --name web
-
-            cd ../ws-server
-            pm2 start "pnpm start" --name ws-server
-
-            echo "✅ Both apps are running on GCP VM"
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Deploy to AWS EC2 via SSH
+#         uses: appleboy/ssh-action@v1.2.0
+#         with:
+#           host: ${{ secrets.EC2_HOST }}
+#           username: ${{ secrets.EC2_USER }}
+#           key: ${{ secrets.EC2_SSH_KEY }}
+#           script: |
+#             cd ~/squad-draw || git clone https://github.com/${{ github.repository }}.git ~/squad-draw && cd ~/squad-draw
+#             git fetch origin main
+#             git reset --hard origin/main
+#             if [ ! -f .env ]; then
+#               cp deploy/.env.example .env
+#             fi
+#             docker compose -f deploy/docker-compose.yml up -d --build
+#             docker compose -f deploy/docker-compose.yml ps
