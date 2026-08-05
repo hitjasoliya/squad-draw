@@ -1,67 +1,57 @@
-# Squad Draw — Scalable Real-Time Collaborative Whiteboard
+# Squad Draw — Real-Time Collaborative Whiteboard
 
-Squad Draw is a production-grade, full-stack real-time collaborative drawing application designed as a **3-service decoupled architecture** (`web`, `ws-server`, and `auth-service`). Users can create rooms, collaborate on whiteboards with real-time canvas sync and cursor tracking, manage room memberships, and participate in group chat.
+Squad Draw is a full-stack real-time collaborative drawing application built as a **three-service architecture** (`web`, `ws-server`, `auth-service`) running behind an **nginx reverse proxy** on a single **AWS EC2** instance via **Docker Compose**.
+
+**Live demo**: [http://13.233.44.210](http://13.233.44.210) · **Repo**: [github.com/hitjasoliya/squad-draw](https://github.com/hitjasoliya/squad-draw)
+
+Users create rooms, draw together on a shared whiteboard with live canvas sync and cursor tracking, manage memberships and roles, and chat in real time.
 
 ---
 
-## 🏛 Architecture Overview
+## 🏛 Architecture
 
 ```
-                        Browser (same-origin httpOnly cookie: squad_session)
-                                           │
-                              ┌────────────▼─────────────┐
-                              │  web/ (Next.js 16)       │
-                              │  API routes + proxy      │
-                              └────┬───────────────┬─────┘
-                     /api/auth/*   │               │ WebSocket (JWT token in cookie)
-                           ┌───────▼─────┐    ┌────▼──────────┐
-                           │ auth-service│    │ ws-server     │  Socket.IO 4.8.3
-                           │ Express 5   │    │ Socket.IO     │  + @socket.io/redis-adapter
-                           │ owns users  │    └────┬──────────┘
-                           └───────┬─────┘         │
-                                   │         ┌─────▼─────┐
-                           ┌───────▼─────────▼───────────┐
-                           │  Postgres 17 (Shared DB)    │
-                           │  Redis 7 (Adapter + Limits  │
-                           │  + token_version cache)     │
-                           └─────────────────────────────┘
+                         Browser (same-origin httpOnly cookie: squad_session)
+                                          │
+                                 ┌────────▼─────────┐
+                                 │ nginx (:80)      │  reverse proxy + WebSocket upgrade
+                                 │  / → web:3000    │
+                                 │  /socket.io/ → ws-server:8080
+                                 └───┬───────────┬──┘
+                          /api/auth/*│           │ WebSocket (same-origin /socket.io)
+                              ┌──────▼─────┐   ┌───▼───────────┐
+                              │ auth-service│  │ ws-server     │  Socket.IO 4.8.3
+                              │ Express 5   │  │ Socket.IO     │  + @socket.io/redis-adapter
+                              │ owns users  │  └───┬───────────┘
+                              └──────┬──────┘      │
+                                     │        ┌────▼─────┐
+                             ┌───────▼────────▼──────────┐
+                             │  Postgres 17 (Shared DB)  │
+                             │  Redis 7 (adapter + rate  │
+                             │  limits + token cache)    │
+                             └───────────────────────────┘
 ```
 
-### Standalone Microservices (Zero Shared Code)
+### Services (zero shared code)
 
-1. **`web/` (Next.js 16.3.0 + React 19 + Turbopack)**: Frontend UI, dashboard, whiteboard dual-canvas (RoughJS), client store (Zustand), stateless Next.js `proxy.ts` gate, and Redis token-bucket rate-limiting middleware for mutation routes. Reverse-proxies `/api/auth/*` traffic to `auth-service`.
-2. **`ws-server/` (Node.js 24 + Socket.IO 4.8.3)**: Real-time event engine with `@socket.io/redis-adapter` for multi-node horizontal scaling, Postgres advisory-locked cleanup crons (`pg_try_advisory_lock`), and stateless zero-DB JWT handshake verification.
-3. **`auth-service/` (Node.js 24 + Express 5)**: Dedicated authentication engine owning `users` table writes, password hashing (bcrypt), token version management, rate-limited auth routes, and DB schema migrations via `node-pg-migrate`.
-
----
-
-## 🚀 Key Features & Performance Optimizations
-
-- **Stateless JWT Auth (`users.token_version`)**: Opaque `sessions` table completely eliminated. Replaced with 30-day HS256 JWTs signed with `jose`. Single active device session enforcement is guaranteed by incrementing `users.token_version` on login/logout and checking against Redis `auth:tv:{userId}` cache.
-- **Zero-Latency Middleware Proxy**: `web/src/proxy.ts` verifies JWT signatures statelessly in CPU using `jose` (<0.1ms), eliminating 100% of internal loopback HTTP fetches.
-- **Stateless WS Handshake**: `ws-server` validates JWT signatures on connection with zero database queries.
-- **Dual-Canvas Rendering Engine**: Separates committed vector shapes (`staticCanvasRef`) from active drawing previews and remote cursor overlays (`dynamicCanvasRef`), preserving a silky 60 FPS ($< 16\text{ms}$) interaction loop.
-- **Horizontal WS Event Scalability**: `@socket.io/redis-adapter` synchronizes room presence, live cursor tracking, shape actions, and chat across distributed WebSocket instances via Redis Pub/Sub.
-- **Postgres Advisory Locks (`pg_try_advisory_lock`)**: Prevents cron race conditions for periodic background data maintenance (message and shape cleanup) across multiple WS server replicas.
-- **Redis-Backed Rate Limiting**: Distributed token-bucket limiters protect auth endpoints (signin 10/15m, signup 5/1h), mutation API routes (30/m), and WS connections (20/10m).
-- **JSONB Vector Data Storage**: Rough.js vector parameters are stored directly inside PostgreSQL `JSONB` columns (`shapes.data_from_rough_js`), avoiding sparse relational table overhead.
-- **Tuned Database Connection Pools**: Max connections configured per tier (web: 10, ws: 5, auth: 5) with a strict 5-second `statement_timeout`.
+1. **`nginx`** — single entry point on port 80. Proxies the web app and `/socket.io/` to ws-server with WebSocket upgrade headers, so browsers talk to one origin; ports 3000/8080 are not exposed publicly.
+2. **`web/` (Next.js 16 + React 19 + Turbopack)** — frontend, dashboard, dual-canvas whiteboard (RoughJS), responsive mobile UI (bottom toolbar, chat sheet, dashboard overview sheet), Zustand stores, stateless `proxy.ts` auth gate.
+3. **`ws-server/` (Node 24 + Socket.IO 4.8.3)** — real-time engine: shapes, chat, presence, cursor tracking. `@socket.io/redis-adapter` for horizontal scaling, Postgres advisory-locked cleanup crons, stateless JWT handshake.
+4. **`auth-service/` (Node 24 + Express 5)** — owns `users` writes: bcrypt hashing, 30-day HS256 JWTs with `users.token_version` revocation, Redis-backed rate limiting, `node-pg-migrate` migrations.
 
 ---
 
-## 🔄 Architecture Evolution: V1 → V2 → V3
+## 🚀 Features
 
-| Feature / Layer | Monorepo Prototype (V1) | Monorepo Optimization (V2) | Current Production Architecture (V3) |
-| :--- | :--- | :--- | :--- |
-| **Service Layout** | Monorepo (`turbo` / `pnpm-workspace`) | Monorepo (`apps/web`, `apps/ws-server`) | **3 Standalone Services** (`web`, `ws-server`, `auth-service`) |
-| **Auth Strategy** | BetterAuth Framework | Database `sessions` table (opaque hex tokens) | **Stateless 30-day HS256 JWT + `token_version`** |
-| **Auth Engine** | Embedded in Next.js API | Embedded in Next.js API | **Standalone `auth-service` (Express 5)** |
-| **Frontend Stack** | Next.js 15 (webpack) | Next.js 15.3.5 | **Next.js 16.3.0 (Turbopack) + React 19** |
-| **WS Handshake** | DB query against `sessions` table | DB query against `sessions` table | **Stateless JWT Signature Verification (`jose`)** |
-| **WS Scaling** | Single-instance socket | Single-instance socket | **Socket.IO + `@socket.io/redis-adapter`** |
-| **Background Crons** | Unlocked `setInterval` | Unlocked `setInterval` | **Postgres Advisory Locks (`pg_try_advisory_lock`)** |
-| **Rate Limiting** | None | None | **Redis-backed Token Buckets** |
-| **Deployment** | GCP VM (Nginx + PM2) | GCP VM (Nginx + PM2) | **AWS EC2 (Docker Compose + GitHub Actions)** |
+- **Stateless JWT auth** — opaque `sessions` table removed; 30-day HS256 JWTs (`jose`) verified in `proxy.ts` with zero DB hits; single-active-token via `token_version`.
+- **Real-time collaboration** — shapes, chat, presence, and cursors broadcast through Socket.IO rooms (Redis adapter ready for multi-node).
+- **Dual-canvas rendering** — committed shapes on a static canvas, live preview on a dynamic canvas (RoughJS), pan/zoom viewport with world→screen cursor transform.
+- **Responsive mobile UI** — tool bar becomes a scrollable bottom bar, chat opens as a sheet with scrim + Escape/click-outside close, room overview renders as a bottom sheet on the dashboard.
+- **Self-healing room links** — joining is idempotent server-side and the room page joins on mount, so `/room/:id` works from any entry path (share links, typed URLs, address-bar copies); already-a-member is a no-op 200.
+- **Single-write shape persistence** — every draw persists exactly once (fixed a bug that inserted each shape twice via WS + REST); WS is the real-time path, REST is the socket-down fallback.
+- **Postgres advisory locks** — cleanup crons (30-day shapes, 3-day messages) never double-run across ws instances.
+- **Redis-backed rate limiting** — auth endpoints, mutation routes, and WS handshakes.
+- **JSONB shape storage** — Rough.js vector data lives in `shapes.data_from_rough_js`, read/written whole.
 
 ---
 
@@ -69,104 +59,86 @@ Squad Draw is a production-grade, full-stack real-time collaborative drawing app
 
 ```
 squad-draw/
-├── web/              # Next.js 16 frontend + Zustand stores + RoughJS canvas + API proxies
-├── ws-server/        # Socket.IO 4.8.3 real-time collaboration server + Redis adapter
-├── auth-service/     # Express 5 authentication service + node-pg-migrate migrations
-├── deploy/           # Dockerfiles (x3) + docker-compose.yml + ec2-setup.sh + .env.example
-├── docs/             # ADRs and baseline/post-migration smoke test logs
-│   └── adr/          # ADR 0001 (3-Service Architecture) & ADR 0002 (Stateless Auth)
-├── CONTEXT.md        # Domain glossary & Ubiquitous Language definitions
-└── PLAN.md           # Architectural refactoring plan & settled engineering decisions
+├── web/              # Next.js 16 frontend + stores + canvas + API routes
+├── ws-server/        # Socket.IO real-time server + Redis adapter
+├── auth-service/     # Express 5 auth service + node-pg-migrate migrations
+├── deploy/           # Dockerfiles ×3, docker-compose.yml, nginx.conf, ec2-setup.sh
+├── docs/adr/         # ADR 0001 (3-service architecture), 0002 (stateless auth)
+├── CONTEXT.md        # Domain glossary
+└── PLAN.md           # Migration plan & settled decisions
 ```
 
 ---
 
-## 🔑 Environment Contract
+## 🔑 Environment Variables
+
+All secrets live in `deploy/.env` on the host; `docker-compose.yml` reads them. Examples in `deploy/.env.example`.
 
 | Variable | Scope | Description |
 | :--- | :--- | :--- |
-| `JWT_SECRET` | All Services | Secret key used to sign and verify HS256 JWT tokens |
-| `DATABASE_URL` | All Services | PostgreSQL 17 connection string (`postgres://user:pass@host:5432/dbname`) |
-| `REDIS_URL` | All Services | Redis 7 connection string (`redis://host:6379`) |
-| `AUTH_SERVICE_URL` | `web/` | Internal URL for web to proxy auth calls (`http://auth-service:4000`) |
-| `NEXT_PUBLIC_WEBSOCKET_URL` | `web/` | Browser WebSocket URL for client connection (`http://localhost:8080`) |
-| `NEXT_PUBLIC_BASE_URL` | `web/` | Browser public URL (`http://localhost:3000`) |
-| `ORIGIN_URL` | `ws-server/` | Allowed CORS origin for WebSocket connections (`http://localhost:3000`) |
+| `JWT_SECRET` | all | HS256 signing secret |
+| `POSTGRES_USER/PASSWORD/DB` | postgres | Postgres credentials (random per deployment) |
+| `DATABASE_URL` | services | `postgres://…` connection string |
+| `REDIS_URL` | services | `redis://…` connection string |
+| `AUTH_SERVICE_URL` | web | `http://auth-service:4000` (internal) |
+| `NEXT_PUBLIC_WEBSOCKET_URL` | web (build-time) | WS origin; same-origin through nginx (`http://13.233.44.210`) |
+| `NEXT_PUBLIC_BASE_URL` | web | public app URL |
+| `ORIGIN_URL` | ws-server | allowed CORS origin |
 
 ---
 
-## 🛠 Local Development Setup
+## 🛠 Local Development
 
-### Prerequisites
-- **Node.js**: `>=24 LTS`
-- **pnpm**: `9+`
-- **PostgreSQL**: `17`
-- **Redis**: `7`
+Prerequisites: Node 24+, pnpm 9+, Postgres 17, Redis 7.
 
-### Running Locally
+```bash
+git clone https://github.com/hitjasoliya/squad-draw.git
+cd squad-draw
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/hit-7624/squad-draw.git
-   cd squad-draw
-   ```
+# envs
+cp deploy/.env.example deploy/.env
+cp deploy/.env.example web/.env.local
+cp deploy/.env.example ws-server/.env
+cp deploy/.env.example auth-service/.env
 
-2. **Configure environment variables**:
-   ```bash
-   cp deploy/.env.example .env
-   cp deploy/.env.example web/.env.local
-   cp deploy/.env.example ws-server/.env
-   cp deploy/.env.example auth-service/.env
-   ```
+# install + migrate + run (three terminals)
+pnpm install
+pnpm -C auth-service migrate:up
+pnpm -C auth-service dev        # :4000
+pnpm -C ws-server dev           # :8080
+pnpm -C web dev                 # :3000
+```
 
-3. **Install dependencies**:
-   ```bash
-   pnpm install
-   ```
-
-4. **Run DB Migrations**:
-   ```bash
-   cd auth-service
-   pnpm migrate:up
-   cd ..
-   ```
-
-5. **Start all services**:
-   ```bash
-   # Option A: Run services concurrently in separate terminals
-   pnpm dev:auth  # Port 4000 (Express 5 Auth Service)
-   pnpm dev:ws    # Port 8080 (Socket.IO Real-time Engine)
-   pnpm dev:web   # Port 3000 (Next.js 16 Web Frontend)
-   ```
-
-6. **Build all services**:
-   ```bash
-   pnpm build
-   ```
+For the real-time sync to work locally, point `web/.env.local` at your local ws-server:
+`NEXT_PUBLIC_WEBSOCKET_URL=http://localhost:8080`.
 
 ---
 
-## 🐳 Docker & Single-EC2 Deployment
+## 🐳 Docker Deployment (single EC2 box)
 
-The application is containerized into multi-stage `node:24-alpine` Docker builds and orchestrated with Docker Compose.
-
-### Running with Docker Compose
-```bash
-cp deploy/.env.example .env
-docker compose -f deploy/docker-compose.yml up -d --build
+```
+deploy/
+├── docker-compose.yml    # postgres, redis, auth-service, ws-server, web, nginx
+├── Dockerfile.web / .ws-server / .auth-service   # multi-stage node:24-alpine
+├── nginx.conf            # :80 → web + /socket.io → ws-server (WS upgrade)
+└── ec2-setup.sh          # one-shot: docker, 2GB swap, clone, .env, build, healthcheck
 ```
 
-### AWS EC2 Provisioning (`ec2-setup.sh`)
-For single-command provisioning on an AWS EC2 instance (Ubuntu 24.04 LTS):
 ```bash
-ssh -i ~/.ssh/your-key.pem ubuntu@<EC2_PUBLIC_IP>
-bash deploy/ec2-setup.sh
+# fresh box (Ubuntu 22.04+/24.04+):
+scp deploy/ec2-setup.sh ubuntu@<IP>:~/
+ssh ubuntu@<IP> "bash ~/ec2-setup.sh"
+
+# or rebuild/restart on an existing box:
+ssh ubuntu@<IP>
+cd squad-draw && cd deploy
+docker compose up -d --build
 ```
 
-### GitHub Actions Auto-Deploy
-Pushes to `main` trigger `.github/workflows/deploy.yml` which SSHs into the AWS EC2 host, pulls code, rebuilds containers, and performs healthcheck verification.
+**Recommended AWS layout**: `t4g.medium`/`c7i-flex.large` (2 vCPU / 4 GB), 20 GiB gp3, 2 GB swap, Elastic IP, security group: `22` (SSH, restrict to your IP) + `80` (nginx). 3000/8080/4000 stay closed — nginx is the only public door. The GitHub Actions workflow in `.github/workflows/deploy.yml` is currently disabled; deploys are done over SSH (`git pull`/rsync + `docker compose up -d --build`).
 
 ---
 
 ## 📄 License
+
 [MIT License](LICENSE)
