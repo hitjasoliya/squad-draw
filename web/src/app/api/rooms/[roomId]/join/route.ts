@@ -22,22 +22,27 @@ export const POST = withAuth(
         return Response.json({ error: "Room not found" }, { status: 404 });
       }
 
-      if (!room.is_shared) {
-        return Response.json(
-          { error: "Room is not shared and cannot be joined" },
-          { status: 403 },
-        );
-      }
-
       const existingMember = await queryOne(
         "SELECT id FROM room_members WHERE room_id = $1 AND user_id = $2",
         [roomId, user.id]
       );
 
+      // Idempotent: opening your own room's link (owner or member) is a
+      // no-op success, not an error.
       if (existingMember) {
         return Response.json(
-          { error: "You are already a member of this room" },
-          { status: 400 },
+          {
+            message: "Already a member of this room",
+            room: { id: room.id, name: room.name },
+          },
+          { status: 200 },
+        );
+      }
+
+      if (!room.is_shared) {
+        return Response.json(
+          { error: "Room is not shared and cannot be joined" },
+          { status: 403 },
         );
       }
 

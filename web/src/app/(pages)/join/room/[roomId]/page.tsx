@@ -18,12 +18,19 @@ const JoinRoomPage = ({ params }: { params: Promise<{ roomId: string }> }) => {
     }
     const joinRoom = async () => {
       const res = await fetch(`/api/rooms/${roomId}/join`, { method: "POST", credentials: "include" });
+      // 200 = joined (or already a member — idempotent) → straight to the room.
       if (res.ok) {
         router.replace(`/room/${roomId}`);
-      } else {
-        const data = await res.json();
-        setError(data.error || "Failed to join room");
+        return;
       }
+      const data = await res.json();
+      // Belt & braces: even if an older API returns "already a member" as an
+      // error, the user IS in the room — send them in.
+      if (res.status === 400 && data.error?.includes("already a member")) {
+        router.replace(`/room/${roomId}`);
+        return;
+      }
+      setError(data.error || "Failed to join room");
     };
     joinRoom();
   }, [session, status, roomId, router]);

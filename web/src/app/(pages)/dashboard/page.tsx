@@ -67,6 +67,21 @@ export default function Dashboard() {
     }
   }, [sessionLoading]);
 
+  // Refresh when the tab regains focus — a room joined via a share link in
+  // another tab would otherwise stay invisible until a full reload.
+  useEffect(() => {
+    const onVisible = () => {
+      if (!document.hidden) void fetchUserAndRooms();
+    };
+    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const fetchUserAndRooms = async () => {
     try {
       setLoading(true);

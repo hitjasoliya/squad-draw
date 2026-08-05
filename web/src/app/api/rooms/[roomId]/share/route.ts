@@ -45,15 +45,13 @@ export const PATCH = withAuth(
         [roomId]
       );
 
-      const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL;
-      if (!BASE_URL)
-        throw new Error(
-          "NEXT_PUBLIC_BASE_URL environment variable is required",
-        );
+      // Build from the actual request origin (never localhost) and point at
+      // the join route so recipients run the membership flow.
+      const shareLink = `${request.nextUrl.origin}/join/room/${roomId}`;
 
       return Response.json({
         message: "Room shared successfully",
-        shareLink: `${BASE_URL}/room/${roomId}`,
+        shareLink,
       });
     } catch (error) {
       console.error("Failed to share room:", error);

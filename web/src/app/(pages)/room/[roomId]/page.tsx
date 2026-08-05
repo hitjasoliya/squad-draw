@@ -40,6 +40,7 @@ export default function RoomPage() {
       setDrawingOptions((opts) => ({ ...opts, stroke: "#000000" }));
     }
   }, [resolvedTheme]);
+  const [roomAccessError, setRoomAccessError] = useState<string | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isControlPanelOpen, setIsControlPanelOpen] = useState(false);
   const [modalState, setModalState] = useState<{
@@ -130,14 +131,36 @@ export default function RoomPage() {
   }, [sessionLoading]);
 
   useEffect(() => {
-    if (session && session.user && !loading && roomId) {
-      // joinRoomInSocket owns socket creation + all listeners.
-      joinRoomInSocket(roomId);
+    if (!session?.user || !roomId || loading) return;
 
-      return () => {
-        disconnectSocket();
-      };
-    }
+    let cancelled = false;
+    (async () => {
+      // Self-heal: /room/:id works for any entry path (typed URL, copied
+      // address bar, old links) because join is idempotent server-side —
+      // members get a no-op 200, non-members are added, private rooms 403.
+      try {
+        const res = await fetch(`/api/rooms/${roomId}/join`, {
+          method: "POST",
+          credentials: "include",
+        });
+        if (cancelled) return;
+        if (!res.ok) {
+          const data = await res.json();
+          setRoomAccessError(data.error || "You don't have access to this room");
+          return;
+        }
+        // joinRoomInSocket owns socket creation + all listeners.
+        joinRoomInSocket(roomId);
+      } catch (err) {
+        console.error("Failed to join room:", err);
+        if (!cancelled) setRoomAccessError("Failed to join room");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      disconnectSocket();
+    };
   }, [session, roomId, loading, joinRoomInSocket, disconnectSocket]);
 
   const previousConnectionStatus = useRef<boolean | null>(null);
@@ -153,6 +176,23 @@ export default function RoomPage() {
     }
     previousConnectionStatus.current = isConnected;
   }, [isConnected]);
+
+  if (roomAccessError) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="p-8 rounded-lg border bg-card text-center max-w-md">
+          <h2 className="text-2xl font-bold mb-4">Unable to Open Room</h2>
+          <p className="text-lg text-destructive mb-6">{roomAccessError}</p>
+          <button
+            className="px-6 py-2 rounded bg-primary text-primary-foreground"
+            onClick={() => router.push("/dashboard")}
+          >
+            Go to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (loading || sessionLoading || !isConnected) {
     return (
