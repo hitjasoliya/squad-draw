@@ -227,8 +227,13 @@ export default function Dashboard() {
             Please sign in to access the dashboard
           </h2>
           <button
-            onClick={() => router.push("/signin")}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground px-6 py-2 rounded-md active:scale-[0.97] transition-[transform,background-color] duration-150 ease-out"
+            onClick={async () => {
+              try {
+                await authClient.signOut();
+              } catch {}
+              router.push("/signin?redirect=/dashboard");
+            }}
+            className="bg-primary hover:bg-primary/90 text-primary-foreground px-6 py-2 rounded-md active:scale-[0.97] transition-[transform,background-color] duration-150 ease-out cursor-pointer"
           >
             Sign In
           </button>

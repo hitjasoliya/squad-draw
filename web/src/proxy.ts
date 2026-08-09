@@ -14,11 +14,12 @@ export async function proxy(req: NextRequest) {
   const isOnProtectedRoute = protectedRoutes.some(
     (route) => nextUrl.pathname === route || nextUrl.pathname.startsWith(route + "/"),
   );
-  const isOnRoomRoute = nextUrl.pathname.startsWith("/room");
+  const isOnRoomRoute = nextUrl.pathname.startsWith("/room") || nextUrl.pathname.startsWith("/join");
   const isOnAuthRoute = nextUrl.pathname === "/signin" || nextUrl.pathname === "/signup";
   const isHomePage = nextUrl.pathname === "/";
 
   let isLoggedIn = false;
+  let shouldClearCookie = false;
 
   if (sessionCookie) {
     try {
@@ -26,17 +27,37 @@ export async function proxy(req: NextRequest) {
         algorithms: ["HS256"],
       });
       if (payload && payload.sub) {
-        isLoggedIn = true;
+        const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || "http://localhost:4000";
+        try {
+          const authRes = await fetch(`${AUTH_SERVICE_URL}/session`, {
+            headers: { Authorization: `Bearer ${sessionCookie}` },
+            signal: AbortSignal.timeout(2000),
+          });
+          if (authRes.ok) {
+            isLoggedIn = true;
+          } else {
+            isLoggedIn = false;
+            shouldClearCookie = true;
+          }
+        } catch {
+          // If auth-service is unreachable (e.g. client build), trust verified JWT payload
+          isLoggedIn = true;
+        }
       }
     } catch {
       isLoggedIn = false;
+      shouldClearCookie = true;
     }
   }
 
   if ((isOnProtectedRoute || isOnRoomRoute) && !isLoggedIn) {
     const signinUrl = new URL("/signin", req.url);
     signinUrl.searchParams.set("redirect", nextUrl.pathname + nextUrl.search);
-    return NextResponse.redirect(signinUrl);
+    const res = NextResponse.redirect(signinUrl);
+    if (shouldClearCookie) {
+      res.cookies.delete(SESSION_COOKIE_NAME);
+    }
+    return res;
   }
 
   if (isOnAuthRoute && isLoggedIn) {
@@ -49,7 +70,11 @@ export async function proxy(req: NextRequest) {
     return NextResponse.redirect(new URL("/dashboard", req.url));
   }
 
-  return NextResponse.next();
+  const res = NextResponse.next();
+  if (shouldClearCookie) {
+    res.cookies.delete(SESSION_COOKIE_NAME);
+  }
+  return res;
 }
 
 export const config = {
