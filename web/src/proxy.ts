@@ -34,11 +34,15 @@ export async function proxy(req: NextRequest) {
   }
 
   if ((isOnProtectedRoute || isOnRoomRoute) && !isLoggedIn) {
-    return NextResponse.redirect(new URL("/signin", req.url));
+    const signinUrl = new URL("/signin", req.url);
+    signinUrl.searchParams.set("redirect", nextUrl.pathname + nextUrl.search);
+    return NextResponse.redirect(signinUrl);
   }
 
   if (isOnAuthRoute && isLoggedIn) {
-    return NextResponse.redirect(new URL("/dashboard", req.url));
+    const redirectParam = nextUrl.searchParams.get("redirect");
+    const destination = redirectParam && redirectParam.startsWith("/") ? redirectParam : "/dashboard";
+    return NextResponse.redirect(new URL(destination, req.url));
   }
 
   if (isHomePage && isLoggedIn) {

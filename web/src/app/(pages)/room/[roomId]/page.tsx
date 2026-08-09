@@ -194,11 +194,11 @@ export default function RoomPage() {
     );
   }
 
-  if (loading || sessionLoading || !isConnected) {
+  if (sessionLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center text-foreground">
-          <h2 className="text-3xl font-sans mb-4">Loading Room...</h2>
+          <h2 className="text-3xl font-sans mb-4">Checking session...</h2>
           <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
         </div>
       </div>
@@ -213,11 +213,22 @@ export default function RoomPage() {
             Please sign in to access the room
           </h2>
           <button
-            onClick={() => router.push("/signin")}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground px-6 py-2 rounded-md"
+            onClick={() => router.push(`/signin?redirect=/room/${roomId}`)}
+            className="bg-primary hover:bg-primary/90 text-primary-foreground px-6 py-2 rounded-md active:scale-[0.97] transition-transform duration-150"
           >
             Sign In
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading || !isConnected) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center text-foreground">
+          <h2 className="text-3xl font-sans mb-4">Connecting to Room...</h2>
+          <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
         </div>
       </div>
     );
