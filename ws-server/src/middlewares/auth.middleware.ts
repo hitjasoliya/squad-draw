@@ -63,6 +63,13 @@ export const authMiddleware = async (
       return next(new Error("Authentication error: Invalid token claims"));
     }
 
+    if (redis && typeof payload.tv === "number") {
+      const cachedTv = await redis.get(`auth:tv:${payload.sub}`);
+      if (cachedTv !== null && parseInt(cachedTv, 10) !== payload.tv) {
+        return next(new Error("Authentication error: Session revoked"));
+      }
+    }
+
     socket.data.user = {
       id: payload.sub as string,
       name: (payload.name as string) || "Anonymous",
